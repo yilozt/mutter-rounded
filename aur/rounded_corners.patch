@@ -1,0 +1,470 @@
+diff --git a/.gitignore b/.gitignore
+index cf5b826c2..fca4d7aad 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,5 +1,6 @@
+ build-aux
+ compile
++.vscode
+ config.h
+ config.h.in
+ ltmain.sh
+diff --git a/src/compositor/compositor.c b/src/compositor/compositor.c
+index 1770550d4..e7142d5db 100644
+--- a/src/compositor/compositor.c
++++ b/src/compositor/compositor.c
+@@ -1022,7 +1022,11 @@ meta_compositor_sync_window_geometry (MetaCompositor *compositor,
+   changes = meta_window_actor_sync_actor_geometry (window_actor, did_placement);
+ 
+   if (changes & META_WINDOW_ACTOR_CHANGE_SIZE)
++  {
++    if (meta_window_actor_should_clip(window_actor))
++      meta_window_actor_update_clipped_bounds(window_actor);
+     meta_plugin_manager_event_size_changed (priv->plugin_mgr, window_actor);
++  }
+ }
+ 
+ static void
+diff --git a/src/compositor/meta-shadow-factory.c b/src/compositor/meta-shadow-factory.c
+index d6424d3be..160e618c9 100644
+--- a/src/compositor/meta-shadow-factory.c
++++ b/src/compositor/meta-shadow-factory.c
+@@ -118,12 +118,12 @@ static guint signals[LAST_SIGNAL] = { 0 };
+ /* The first element in this array also defines the default parameters
+  * for newly created classes */
+ MetaShadowClassInfo default_shadow_classes[] = {
+-  { "normal",       { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
+-  { "dialog",       { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
+-  { "modal_dialog", { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
+-  { "utility",      { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
+-  { "border",       { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
+-  { "menu",         { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
++  { "normal",       { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
++  { "dialog",       { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
++  { "modal_dialog", { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
++  { "utility",      { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
++  { "border",       { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
++  { "menu",         { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
+ 
+   { "popup-menu",    { 1, -1, 0, 0, 128 }, { 1, -1, 0, 0, 128 } },
+   { "dropdown-menu", { 1, -1, 0, 0, 128 }, { 1, -1, 0, 0, 128 } },
+diff --git a/src/compositor/meta-window-actor-private.h b/src/compositor/meta-window-actor-private.h
+index 64741e416..d018a94c1 100644
+--- a/src/compositor/meta-window-actor-private.h
++++ b/src/compositor/meta-window-actor-private.h
+@@ -99,4 +99,8 @@ void meta_window_actor_update_regions (MetaWindowActor *self);
+ 
+ gboolean meta_window_actor_can_freeze_commits (MetaWindowActor *self);
+ 
++void meta_window_actor_setup_glsl(MetaWindowActor *self);
++gboolean meta_window_actor_should_clip(MetaWindowActor *self);
++void meta_window_actor_update_clipped_bounds(MetaWindowActor *window_actor);
++
+ #endif /* META_WINDOW_ACTOR_PRIVATE_H */
+diff --git a/src/compositor/meta-window-actor-x11.c b/src/compositor/meta-window-actor-x11.c
+index e18b1b28b..a08a52d45 100644
+--- a/src/compositor/meta-window-actor-x11.c
++++ b/src/compositor/meta-window-actor-x11.c
+@@ -535,6 +535,9 @@ has_shadow (MetaWindowActorX11 *actor_x11)
+   if (meta_window_get_frame (window))
+     return TRUE;
+ 
++  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++    return TRUE;
++
+   /*
+    * Do not add shadows to non-opaque (ARGB32) windows, as we can't easily
+    * generate shadows for them.
+@@ -691,6 +694,9 @@ clip_shadow_under_window (MetaWindowActorX11 *actor_x11)
+ 
+   if (window->frame)
+     return TRUE;
++  
++  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++    return TRUE;
+ 
+   return meta_window_actor_is_opaque (META_WINDOW_ACTOR (actor_x11));
+ }
+@@ -1148,6 +1154,20 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
+   cairo_region_destroy (opaque_region);
+ }
+ 
++static cairo_region_t *
++meta_window_get_clipped_frame_bounds(MetaWindow *window)
++{
++  if (!window->frame_bounds)
++  {
++    MetaRectangle frame_rect = window->rect;
++    MetaRectangle buff_rect = window->buffer_rect;
++    frame_rect.x = frame_rect.x - buff_rect.x;
++    frame_rect.y = frame_rect.y - buff_rect.y;
++    window->frame_bounds = meta_ui_frame_get_bounds_clipped(&frame_rect, 12);
++  }
++  return window->frame_bounds;
++}
++
+ static void
+ update_frame_bounds (MetaWindowActorX11 *actor_x11)
+ {
+@@ -1155,8 +1175,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
+     meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_x11));
+ 
+   g_clear_pointer (&actor_x11->frame_bounds, cairo_region_destroy);
+-  actor_x11->frame_bounds =
+-    cairo_region_copy (meta_window_get_frame_bounds (window));
++  
++  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++    actor_x11->frame_bounds =
++      cairo_region_copy(meta_window_get_clipped_frame_bounds(window));
++  else
++    actor_x11->frame_bounds =
++      cairo_region_copy (meta_window_get_frame_bounds (window));
+ }
+ 
+ static void
+@@ -1288,7 +1313,7 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
+   appears_focused = meta_window_appears_focused (window);
+   shadow = appears_focused ? actor_x11->focused_shadow
+                            : actor_x11->unfocused_shadow;
+-
++                                                                   
+   if (shadow)
+     {
+       MetaShadowParams params;
+@@ -1299,10 +1324,24 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
+       get_shape_bounds (actor_x11, &shape_bounds);
+       get_shadow_params (actor_x11, appears_focused, &params);
+ 
++      if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11))) {
++          MetaRectangle frame_rect;
++          MetaRectangle buf_rect;
++
++          meta_window_get_frame_rect( META_WINDOW(window), &frame_rect);
++          meta_window_get_buffer_rect(META_WINDOW(window), &buf_rect);
++          shape_bounds.x = frame_rect.x - buf_rect.x;
++          shape_bounds.y = frame_rect.y - buf_rect.y;
++          shape_bounds.width = frame_rect.width;
++          shape_bounds.height = frame_rect.height;
++      }
++
+       /* The frame bounds are already subtracted from actor_x11->shadow_clip
+        * if that exists.
+        */
+-      if (!clip && clip_shadow_under_window (actor_x11))
++      // if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)) ||
++      if (
++                                        (!clip && clip_shadow_under_window (actor_x11)))
+         {
+           cairo_rectangle_int_t bounds;
+ 
+@@ -1323,12 +1362,12 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
+                          (clutter_actor_get_paint_opacity (actor) *
+                           params.opacity * window->opacity) / (255 * 255),
+                          clip,
+-                         clip_shadow_under_window (actor_x11));
++                         clip_shadow_under_window(actor_x11));
+ 
+       if (clip && clip != actor_x11->shadow_clip)
+         cairo_region_destroy (clip);
+     }
+-
++  
+   CLUTTER_ACTOR_CLASS (meta_window_actor_x11_parent_class)->paint (actor,
+                                                                    paint_context);
+ }
+diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
+index d4fc9a43a..536134b70 100644
+--- a/src/compositor/meta-window-actor.c
++++ b/src/compositor/meta-window-actor.c
+@@ -53,7 +53,11 @@ typedef struct _MetaWindowActorPrivate
+   MetaWindow *window;
+   MetaCompositor *compositor;
+ 
++  // round clip effect
+   MetaSurfaceActor *surface;
++  ClutterEffect *round_clip_effect;
++  gboolean effect_setuped;
++
+ 
+   int geometry_scale;
+ 
+@@ -216,6 +220,8 @@ meta_window_actor_init (MetaWindowActor *self)
+     meta_window_actor_get_instance_private (self);
+ 
+   priv->geometry_scale = 1;
++  priv->round_clip_effect = NULL;
++  priv->effect_setuped = FALSE;
+ }
+ 
+ static void
+@@ -378,6 +384,98 @@ meta_window_actor_assign_surface_actor (MetaWindowActor  *self,
+                                                             surface_actor);
+ }
+ 
++static const gchar
++ROUNDED_CLIP_FRAGMENT_SHADER_CODE[] = 
++  "uniform sampler2D tex;                                                   \n"
++  "uniform int will_clip;                                                   \n"
++  "uniform vec4 bounds;           // x, y: top left; w, v: bottom right     \n"
++  "uniform vec4 corner_centers_1; // x, y: top left; w, v: top right        \n"
++  "uniform vec4 corner_centers_2; // x, y: bottom right; w, v: bottom left  \n"
++  "uniform vec2 pixel_step;                                                 \n"
++  "uniform float opacity;                                                   \n"
++  "                                                                         \n"
++  "float                                                                    \n"
++  "ellipsis_dist (vec2 p, vec2 radius)                                      \n"
++  "{                                                                        \n"
++  "  if (radius == vec2(0, 0))                                              \n"
++  "    return 0.0;                                                          \n"
++  "                                                                         \n"
++  "  vec2 p0 = p / radius;                                                  \n"
++  "  vec2 p1 = (2.0 * p0) / radius;                                         \n"
++  "                                                                         \n"
++  "  return (dot(p0, p0) - 1.0) / length (p1);                              \n"
++  "}                                                                        \n"
++  "                                                                         \n"
++  "float                                                                    \n"
++  "ellipsis_coverage (vec2 point, vec2 center, vec2 radius)                 \n"
++  "{                                                                        \n"
++  "  float d = ellipsis_dist ((point - center), radius);                    \n"
++  "  return clamp (0.5 - d, 0.0, 1.0);                                      \n"
++  "}                                                                        \n"
++  "                                                                         \n"
++  "float                                                                    \n"
++  "rounded_rect_coverage (vec4 bounds,                                      \n"
++  "                       vec4 corner_centers_1,                            \n"
++  "                       vec4 corner_centers_2,                            \n"
++  "                       vec2 p)                                           \n"
++  "{                                                                        \n"
++  "  if (p.x < bounds.x || p.y < bounds.y ||                                \n"
++  "      p.x >= bounds.z || p.y >= bounds.w)                                \n"
++  "    return 0.0;                                                          \n"
++  "                                                                         \n"
++  "  vec2 ref_tl = corner_centers_1.xy;                                     \n"
++  "  vec2 ref_tr = corner_centers_1.zw;                                     \n"
++  "  vec2 ref_br = corner_centers_2.xy;                                     \n"
++  "  vec2 ref_bl = corner_centers_2.zw;                                     \n"
++  "                                                                         \n"
++  "  if (p.x >= ref_tl.x && p.x >= ref_bl.x &&                              \n"
++  "      p.x <= ref_tr.x && p.x <= ref_br.x)                                \n"
++  "    return 1.0;                                                          \n"
++  "                                                                         \n"
++  "  if (p.y >= ref_tl.y && p.y >= ref_tr.y &&                              \n"
++  "      p.y <= ref_bl.y && p.y <= ref_br.y)                                \n"
++  "    return 1.0;                                                          \n"
++  "                                                                         \n"
++  "  vec2 rad_tl = corner_centers_1.xy - bounds.xy;                         \n"
++  "  vec2 rad_tr = corner_centers_1.zw - bounds.zy;                         \n"
++  "  vec2 rad_br = corner_centers_2.xy - bounds.zw;                         \n"
++  "  vec2 rad_bl = corner_centers_2.zw - bounds.xw;                         \n"
++  "                                                                         \n"
++  "  float d_tl = ellipsis_coverage(p, ref_tl, rad_tl);                     \n"
++  "  float d_tr = ellipsis_coverage(p, ref_tr, rad_tr);                     \n"
++  "  float d_br = ellipsis_coverage(p, ref_br, rad_br);                     \n"
++  "  float d_bl = ellipsis_coverage(p, ref_bl, rad_bl);                     \n"
++  "                                                                         \n"
++  "  vec4 corner_coverages = 1.0 - vec4(d_tl, d_tr, d_br, d_bl);            \n"
++  "                                                                         \n"
++  "  bvec4 is_out = bvec4(p.x < ref_tl.x && p.y < ref_tl.y,                 \n"
++  "                       p.x > ref_tr.x && p.y < ref_tr.y,                 \n"
++  "                       p.x > ref_br.x && p.y > ref_br.y,                 \n"
++  "                       p.x < ref_bl.x && p.y > ref_bl.y);                \n"
++  "                                                                         \n"
++  "  return 1.0 - dot(vec4(is_out), corner_coverages);                      \n"
++  "}                                                                        \n"
++  "                                                                         \n"
++  "void main()                                                              \n"
++  "{                                                                        \n"
++  "vec2 texture_coord;                                                      \n"
++  "                                                                         \n"
++  "  texture_coord = cogl_tex_coord0_in.xy / pixel_step;                    \n"
++  "  vec4 res;\n"
++  "  if (will_clip == 1) {                                                  \n"
++  "    res =  texture2D(tex, cogl_tex_coord0_in.xy)              \n"
++  "                   *  rounded_rect_coverage(bounds,                      \n"
++  "                                            corner_centers_1,            \n"
++  "                                            corner_centers_2,            \n"
++  "                                            texture_coord);              \n"
++  "  } else {                                                               \n"
++  "      res =  texture2D(tex, cogl_tex_coord0_in.xy);           \n"
++  "  }                                                                      \n"
++  "  res *= opacity;\n"
++  "  cogl_color_out = res;\n"
++  "}"
++  ;
++
+ static void
+ init_surface_actor (MetaWindowActor *self)
+ {
+@@ -452,7 +550,7 @@ meta_window_actor_dispose (GObject *object)
+                                   CLUTTER_ACTOR (priv->surface));
+       g_clear_object (&priv->surface);
+     }
+-
++  
+   G_OBJECT_CLASS (meta_window_actor_parent_class)->dispose (object);
+ }
+ 
+@@ -803,6 +901,106 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
+     clutter_actor_destroy (CLUTTER_ACTOR (self));
+ }
+ 
++void
++meta_window_actor_update_clipped_bounds(MetaWindowActor *window_actor)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private(window_actor);
++  MetaWindow *window = priv->window;
++
++  if (window->frame_bounds) {
++    cairo_region_destroy(window->frame_bounds);
++    window->frame_bounds = NULL;
++  }
++}
++
++gboolean
++meta_window_actor_should_clip(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
++  MetaWindow *window = priv->window;
++  MetaWindowType window_type = meta_window_get_window_type(window);
++
++  return !(
++    window_type == META_WINDOW_DOCK ||
++    window_type == META_WINDOW_POPUP_MENU ||
++    window_type == META_WINDOW_DROPDOWN_MENU ||
++    window_type == META_WINDOW_OVERRIDE_OTHER ||
++    meta_window_get_maximized(window) ||
++    meta_window_get_client_type(window) == META_WINDOW_CLIENT_TYPE_WAYLAND
++  );
++}
++
++void
++meta_window_actor_setup_glsl(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
++  ClutterShaderEffect *effect = CLUTTER_SHADER_EFFECT(priv->round_clip_effect);
++  MetaSurfaceActor *surface = priv->surface;
++  ClutterActor *actor = CLUTTER_ACTOR(surface);
++  const float r = 12;
++
++   if (surface == NULL)
++    return ;
++
++  if (!priv->effect_setuped)
++  {
++    effect = CLUTTER_SHADER_EFFECT(clutter_shader_effect_new(CLUTTER_FRAGMENT_SHADER));
++
++    if (clutter_shader_effect_set_shader_source(effect,
++                                                ROUNDED_CLIP_FRAGMENT_SHADER_CODE))
++    {
++      clutter_actor_add_effect(actor, CLUTTER_EFFECT(effect));
++      clutter_shader_effect_set_uniform(effect, "tex", G_TYPE_INT, 1, 0);
++    }
++    else
++    {
++      g_object_unref(effect);
++      effect = NULL;
++    }
++    priv->round_clip_effect = CLUTTER_EFFECT(effect);
++    priv->effect_setuped = TRUE;
++  }
++
++  if (effect == NULL)
++    return;
++  
++  clutter_shader_effect_set_uniform(effect,"opacity",
++                                    G_TYPE_FLOAT, 1,
++                                    clutter_actor_get_opacity(actor) / 255.0f);
++
++  if (!meta_window_actor_should_clip(self)) 
++  {
++    clutter_shader_effect_set_uniform(effect, "will_clip", G_TYPE_INT, 1, 0);
++    return ;
++  }
++
++  MetaRectangle frame_rect;
++  MetaRectangle buf_rect;
++  float w, h;
++
++  clutter_actor_get_size(CLUTTER_ACTOR(actor), &w, &h);
++  meta_window_get_frame_rect(priv->window, &frame_rect);
++  meta_window_get_buffer_rect(priv->window, &buf_rect);
++
++  float inner_pix = 1.0f;
++
++  float x1 = frame_rect.x - buf_rect.x + 1.0f + inner_pix;
++  float y1 = frame_rect.y - buf_rect.y + 1.0f + inner_pix;
++  float x2 = frame_rect.x - buf_rect.x + frame_rect.width  - inner_pix;
++  float y2 = frame_rect.y - buf_rect.y + frame_rect.height - inner_pix;
++
++  clutter_shader_effect_set_uniform(effect, "will_clip", G_TYPE_INT, 1, 1);
++  clutter_shader_effect_set_uniform(effect, "bounds", G_TYPE_FLOAT,
++                                    4, x1, y1, x2, y2);
++  clutter_shader_effect_set_uniform(effect, "corner_centers_1", G_TYPE_FLOAT,
++                                    4, x1 + r, y1 + r, x2 - r, y1 + r);
++  clutter_shader_effect_set_uniform(effect, "corner_centers_2", G_TYPE_FLOAT, 
++                                    4, x2 - r, y2 - r, x1 + r, y2 - r);
++  clutter_shader_effect_set_uniform(effect, "pixel_step", G_TYPE_FLOAT,
++                                    2, 1. / w, 1. / h);
++}
++
+ MetaWindowActorChanges
+ meta_window_actor_sync_actor_geometry (MetaWindowActor *self,
+                                        gboolean         did_placement)
+@@ -861,6 +1059,8 @@ meta_window_actor_sync_actor_geometry (MetaWindowActor *self,
+   if (changes & META_WINDOW_ACTOR_CHANGE_SIZE)
+     clutter_actor_set_size (actor, window_rect.width, window_rect.height);
+ 
++  meta_window_actor_setup_glsl(self);
++
+   return changes;
+ }
+ 
+diff --git a/src/ui/frames.c b/src/ui/frames.c
+index 48b2a361c..8be6a8f8b 100644
+--- a/src/ui/frames.c
++++ b/src/ui/frames.c
+@@ -711,6 +711,27 @@ meta_ui_frame_get_bounds (MetaUIFrame *frame)
+   return get_visible_region (frame, &fgeom);
+ }
+ 
++cairo_region_t * 
++meta_ui_frame_get_bounds_clipped (const MetaRectangle *bounds,
++                                  float radius)
++{
++  MetaFrameGeometry fgeom;
++ 
++  fgeom.borders.invisible.left = bounds->x;
++  fgeom.borders.invisible.top =  bounds->y;
++  fgeom.borders.invisible.bottom = 0;
++  fgeom.borders.invisible.right =  0;
++  fgeom.width  = bounds->width + bounds->x;
++  fgeom.height = bounds->height + bounds->y;
++
++  fgeom.top_left_corner_rounded_radius = radius;
++  fgeom.top_right_corner_rounded_radius = radius;
++  fgeom.bottom_left_corner_rounded_radius = radius;
++  fgeom.bottom_right_corner_rounded_radius = radius;
++  
++  return get_visible_region (NULL, &fgeom);
++}
++
+ void
+ meta_ui_frame_move_resize (MetaUIFrame *frame,
+                            int x, int y, int width, int height)
+diff --git a/src/ui/frames.h b/src/ui/frames.h
+index 73dee1737..03b19ba40 100644
+--- a/src/ui/frames.h
++++ b/src/ui/frames.h
+@@ -135,6 +135,10 @@ void meta_ui_frame_get_borders (MetaUIFrame      *frame,
+ 
+ cairo_region_t * meta_ui_frame_get_bounds (MetaUIFrame *frame);
+ 
++cairo_region_t * 
++meta_ui_frame_get_bounds_clipped (const MetaRectangle *bounds,
++                                  float radius);
++
+ void meta_ui_frame_get_mask (MetaUIFrame           *frame,
+                              cairo_rectangle_int_t *frame_rect,
+                              cairo_t               *cr);

@@ -23,7 +23,7 @@ _commit=2bfef7dbdc6f432a5433c93c1fcdbf00099367c8  # tags/40.4^0
 source=("$pkgname::git+https://gitlab.gnome.org/GNOME/mutter.git#commit=$_commit"
         "rounded_corners.patch")
 sha256sums=('SKIP'
-            'SKIP')
+            '1c0b1047e72c0700043efb2febb94cd4f317d43491f63cc1c8c9ebf623bc4cb5')
 
 pkgver() {
   cd $pkgname

@@ -9,6 +9,29 @@ index cf5b826c2..fca4d7aad 100644
  config.h
  config.h.in
  ltmain.sh
+diff --git a/data/org.gnome.mutter.gschema.xml.in b/data/org.gnome.mutter.gschema.xml.in
+index 23fa9f3ad..45506872c 100644
+--- a/data/org.gnome.mutter.gschema.xml.in
++++ b/data/org.gnome.mutter.gschema.xml.in
+@@ -2,6 +2,18 @@
+   <schema id="org.gnome.mutter" path="/org/gnome/mutter/"
+           gettext-domain="@GETTEXT_DOMAIN@">
+ 
++    <key name="round-corners-radius" type="i">
++      <default>8</default>
++      <range min="0" max="100"/>
++      <summary>Round Corners Radius</summary>
++    </key>
++
++    <key name="window-edge-padding" type="i">
++      <default>1</default>
++      <range min="0" max="50"/>
++      <summary>padding of window will be clipped</summary>
++    </key>
++
+     <key name="overlay-key" type="s">
+       <default>'Super_L'</default>
+       <summary>Modifier to use for extended window management operations</summary>
 diff --git a/src/compositor/compositor.c b/src/compositor/compositor.c
 index 1770550d4..e7142d5db 100644
 --- a/src/compositor/compositor.c
@@ -26,7 +49,7 @@ index 1770550d4..e7142d5db 100644
  
  static void
 diff --git a/src/compositor/meta-shadow-factory.c b/src/compositor/meta-shadow-factory.c
-index d6424d3be..160e618c9 100644
+index d6424d3be..b67bdda79 100644
 --- a/src/compositor/meta-shadow-factory.c
 +++ b/src/compositor/meta-shadow-factory.c
 @@ -118,12 +118,12 @@ static guint signals[LAST_SIGNAL] = { 0 };
@@ -39,33 +62,45 @@ index d6424d3be..160e618c9 100644
 -  { "utility",      { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
 -  { "border",       { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
 -  { "menu",         { 10, -1, 0, 3, 128 }, { 8, -1, 0, 2, 64 } },
-+  { "normal",       { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
-+  { "dialog",       { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
-+  { "modal_dialog", { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
-+  { "utility",      { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
-+  { "border",       { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
-+  { "menu",         { 8, -1, 6, 6, 94 }, { 5, -1, 0, 2, 64 } },
++  { "normal",       { 10, -1, 2, 4, 94 }, { 8, -1, 0, 2, 54 } },
++  { "dialog",       { 10, -1, 2, 4, 94 }, { 8, -1, 0, 2, 54 } },
++  { "modal_dialog", { 10, -1, 2, 4, 94 }, { 8, -1, 0, 2, 54 } },
++  { "utility",      { 10, -1, 2, 4, 94 }, { 8, -1, 0, 2, 54 } },
++  { "border",       { 10, -1, 2, 4, 94 }, { 8, -1, 0, 2, 54 } },
++  { "menu",         { 10, -1, 2, 4, 94 }, { 8, -1, 0, 2, 54 } },
  
    { "popup-menu",    { 1, -1, 0, 0, 128 }, { 1, -1, 0, 0, 128 } },
    { "dropdown-menu", { 1, -1, 0, 0, 128 }, { 1, -1, 0, 0, 128 } },
 diff --git a/src/compositor/meta-window-actor-private.h b/src/compositor/meta-window-actor-private.h
-index 64741e416..d018a94c1 100644
+index 64741e416..f9ad36cce 100644
 --- a/src/compositor/meta-window-actor-private.h
 +++ b/src/compositor/meta-window-actor-private.h
-@@ -99,4 +99,8 @@ void meta_window_actor_update_regions (MetaWindowActor *self);
+@@ -99,4 +99,10 @@ void meta_window_actor_update_regions (MetaWindowActor *self);
  
  gboolean meta_window_actor_can_freeze_commits (MetaWindowActor *self);
  
-+void meta_window_actor_setup_glsl(MetaWindowActor *self);
 +gboolean meta_window_actor_should_clip(MetaWindowActor *self);
 +void meta_window_actor_update_clipped_bounds(MetaWindowActor *window_actor);
++void meta_window_actor_setup_glsl(MetaWindowActor *self);
++void update_rounded_corner_bounds(MetaWindowActor *self);
++void meta_window_actor_get_corner_rect(MetaWindowActor *self, MetaRectangle *rect);
 +
  #endif /* META_WINDOW_ACTOR_PRIVATE_H */
 diff --git a/src/compositor/meta-window-actor-x11.c b/src/compositor/meta-window-actor-x11.c
-index e18b1b28b..a08a52d45 100644
+index e18b1b28b..60e4e74c8 100644
 --- a/src/compositor/meta-window-actor-x11.c
 +++ b/src/compositor/meta-window-actor-x11.c
-@@ -535,6 +535,9 @@ has_shadow (MetaWindowActorX11 *actor_x11)
+@@ -401,6 +401,9 @@ surface_size_changed (MetaSurfaceActor *actor,
+   MetaWindowActorX11 *actor_x11 = META_WINDOW_ACTOR_X11 (user_data);
+ 
+   meta_window_actor_x11_update_shape (actor_x11);
++
++  update_rounded_corner_bounds(META_WINDOW_ACTOR(actor_x11));
++  meta_window_actor_setup_glsl(META_WINDOW_ACTOR(actor_x11));
+ }
+ 
+ static void
+@@ -535,6 +538,9 @@ has_shadow (MetaWindowActorX11 *actor_x11)
    if (meta_window_get_frame (window))
      return TRUE;
  
@@ -75,30 +110,45 @@ index e18b1b28b..a08a52d45 100644
    /*
     * Do not add shadows to non-opaque (ARGB32) windows, as we can't easily
     * generate shadows for them.
-@@ -691,6 +694,9 @@ clip_shadow_under_window (MetaWindowActorX11 *actor_x11)
+@@ -691,6 +697,8 @@ clip_shadow_under_window (MetaWindowActorX11 *actor_x11)
  
    if (window->frame)
      return TRUE;
-+  
 +  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
 +    return TRUE;
  
    return meta_window_actor_is_opaque (META_WINDOW_ACTOR (actor_x11));
  }
-@@ -1148,6 +1154,20 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
+@@ -1040,6 +1048,12 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
+        * entire window. */
+       region = cairo_region_create_rectangle (&client_area);
+     }
++  
++  if (!window->frame && meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++    {
++      meta_window_actor_get_corner_rect(META_WINDOW_ACTOR(actor_x11), &client_area);
++      region = cairo_region_create_rectangle(&client_area);  
++    }
+ 
+   if (window->shape_region || window->frame)
+     build_and_scan_frame_mask (actor_x11, region);
+@@ -1148,6 +1162,23 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
    cairo_region_destroy (opaque_region);
  }
  
 +static cairo_region_t *
 +meta_window_get_clipped_frame_bounds(MetaWindow *window)
 +{
-+  if (!window->frame_bounds)
++  g_return_val_if_fail(window, NULL);
++
++  MetaWindowActor *actor = meta_window_actor_from_window(window);
++  if (actor && !window->frame_bounds)
 +  {
-+    MetaRectangle frame_rect = window->rect;
-+    MetaRectangle buff_rect = window->buffer_rect;
-+    frame_rect.x = frame_rect.x - buff_rect.x;
-+    frame_rect.y = frame_rect.y - buff_rect.y;
-+    window->frame_bounds = meta_ui_frame_get_bounds_clipped(&frame_rect, 12);
++    MetaRectangle rect;
++    meta_window_actor_get_corner_rect(actor, &rect);
++    window->frame_bounds = 
++      meta_ui_frame_get_bounds_clipped(&rect,
++                                       meta_prefs_get_round_corner_radius());
 +  }
 +  return window->frame_bounds;
 +}
@@ -106,7 +156,7 @@ index e18b1b28b..a08a52d45 100644
  static void
  update_frame_bounds (MetaWindowActorX11 *actor_x11)
  {
-@@ -1155,8 +1175,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
+@@ -1155,8 +1186,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
      meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_x11));
  
    g_clear_pointer (&actor_x11->frame_bounds, cairo_region_destroy);
@@ -122,87 +172,23 @@ index e18b1b28b..a08a52d45 100644
  }
  
  static void
-@@ -1288,7 +1313,7 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
-   appears_focused = meta_window_appears_focused (window);
-   shadow = appears_focused ? actor_x11->focused_shadow
-                            : actor_x11->unfocused_shadow;
--
-+                                                                   
-   if (shadow)
-     {
-       MetaShadowParams params;
-@@ -1299,10 +1324,24 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
-       get_shape_bounds (actor_x11, &shape_bounds);
-       get_shadow_params (actor_x11, appears_focused, &params);
- 
-+      if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11))) {
-+          MetaRectangle frame_rect;
-+          MetaRectangle buf_rect;
-+
-+          meta_window_get_frame_rect( META_WINDOW(window), &frame_rect);
-+          meta_window_get_buffer_rect(META_WINDOW(window), &buf_rect);
-+          shape_bounds.x = frame_rect.x - buf_rect.x;
-+          shape_bounds.y = frame_rect.y - buf_rect.y;
-+          shape_bounds.width = frame_rect.width;
-+          shape_bounds.height = frame_rect.height;
-+      }
-+
-       /* The frame bounds are already subtracted from actor_x11->shadow_clip
-        * if that exists.
-        */
--      if (!clip && clip_shadow_under_window (actor_x11))
-+      // if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)) ||
-+      if (
-+                                        (!clip && clip_shadow_under_window (actor_x11)))
-         {
-           cairo_rectangle_int_t bounds;
- 
-@@ -1323,12 +1362,12 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
-                          (clutter_actor_get_paint_opacity (actor) *
-                           params.opacity * window->opacity) / (255 * 255),
-                          clip,
--                         clip_shadow_under_window (actor_x11));
-+                         clip_shadow_under_window(actor_x11));
- 
-       if (clip && clip != actor_x11->shadow_clip)
-         cairo_region_destroy (clip);
-     }
--
-+  
-   CLUTTER_ACTOR_CLASS (meta_window_actor_x11_parent_class)->paint (actor,
-                                                                    paint_context);
- }
 diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
-index d4fc9a43a..536134b70 100644
+index d4fc9a43a..46d38174f 100644
 --- a/src/compositor/meta-window-actor.c
 +++ b/src/compositor/meta-window-actor.c
-@@ -53,7 +53,11 @@ typedef struct _MetaWindowActorPrivate
-   MetaWindow *window;
-   MetaCompositor *compositor;
+@@ -41,6 +41,105 @@
+ #include "wayland/meta-wayland-surface.h"
+ #endif
  
-+  // round clip effect
-   MetaSurfaceActor *surface;
-+  ClutterEffect *round_clip_effect;
-+  gboolean effect_setuped;
-+
- 
-   int geometry_scale;
- 
-@@ -216,6 +220,8 @@ meta_window_actor_init (MetaWindowActor *self)
-     meta_window_actor_get_instance_private (self);
- 
-   priv->geometry_scale = 1;
-+  priv->round_clip_effect = NULL;
-+  priv->effect_setuped = FALSE;
- }
- 
- static void
-@@ -378,6 +384,98 @@ meta_window_actor_assign_surface_actor (MetaWindowActor  *self,
-                                                             surface_actor);
- }
- 
-+static const gchar
-+ROUNDED_CLIP_FRAGMENT_SHADER_CODE[] = 
++/* 
++ * base on src/compositor/meta-background-content.c 
++ *
++ * The ellipsis_dist(), ellipsis_coverage() and rounded_rect_coverage() are
++ * copied from GSK, see gsk_ellipsis_dist(), gsk_ellipsis_coverage(), and
++ * gsk_rounded_rect_coverage() here:
++ * https://gitlab.gnome.org/GNOME/gtk/-/blob/master/gsk/resources/glsl/preamble.fs.glsl
++ */
++static gchar ROUNDED_CLIP_WINDOW_FRAGMENT_SHADER_CODE[] =  
 +  "uniform sampler2D tex;                                                   \n"
 +  "uniform int will_clip;                                                   \n"
 +  "uniform vec4 bounds;           // x, y: top left; w, v: bottom right     \n"
@@ -278,125 +264,176 @@ index d4fc9a43a..536134b70 100644
 +  "vec2 texture_coord;                                                      \n"
 +  "                                                                         \n"
 +  "  texture_coord = cogl_tex_coord0_in.xy / pixel_step;                    \n"
-+  "  vec4 res;\n"
++  "  vec4 res;                                                              \n"
 +  "  if (will_clip == 1) {                                                  \n"
-+  "    res =  texture2D(tex, cogl_tex_coord0_in.xy)              \n"
++  // "    res =  (texture2D(tex, cogl_tex_coord0_in.xy) + vec4(0.1, 0.1, 0.1, 0.3))                         \n"
++  "    res =  texture2D(tex, cogl_tex_coord0_in.xy)                         \n"
 +  "                   *  rounded_rect_coverage(bounds,                      \n"
 +  "                                            corner_centers_1,            \n"
 +  "                                            corner_centers_2,            \n"
 +  "                                            texture_coord);              \n"
 +  "  } else {                                                               \n"
-+  "      res =  texture2D(tex, cogl_tex_coord0_in.xy);           \n"
++  "      res =  texture2D(tex, cogl_tex_coord0_in.xy);                      \n"
 +  "  }                                                                      \n"
-+  "  res *= opacity;\n"
-+  "  cogl_color_out = res;\n"
-+  "}"
-+  ;
++  "  res *= opacity;                                                        \n"
++  "  cogl_color_out = res;                                                  \n"
++  "}";
 +
- static void
- init_surface_actor (MetaWindowActor *self)
+ typedef enum
  {
-@@ -452,7 +550,7 @@ meta_window_actor_dispose (GObject *object)
-                                   CLUTTER_ACTOR (priv->surface));
-       g_clear_object (&priv->surface);
-     }
--
-+  
-   G_OBJECT_CLASS (meta_window_actor_parent_class)->dispose (object);
- }
+   INITIALLY_FROZEN,
+@@ -48,12 +147,23 @@ typedef enum
+   EMITTED_FIRST_FRAME
+ } FirstFrameState;
  
-@@ -803,6 +901,106 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
-     clutter_actor_destroy (CLUTTER_ACTOR (self));
- }
- 
-+void
-+meta_window_actor_update_clipped_bounds(MetaWindowActor *window_actor)
++typedef struct
 +{
-+  MetaWindowActorPrivate *priv =
-+    meta_window_actor_get_instance_private(window_actor);
-+  MetaWindow *window = priv->window;
++  MetaRectangle bounds;
++  int right;
++  int bottom;
++} CornerBounds;
 +
-+  if (window->frame_bounds) {
-+    cairo_region_destroy(window->frame_bounds);
-+    window->frame_bounds = NULL;
+ typedef struct _MetaWindowActorPrivate
+ {
+   MetaWindow *window;
+   MetaCompositor *compositor;
+ 
+   MetaSurfaceActor *surface;
++  ClutterShaderEffect *round_clip_effect;
++  gboolean effect_setuped;
++  CornerBounds corner_bounds;
++  gboolean should_clip;
+ 
+   int geometry_scale;
+ 
+@@ -119,6 +229,158 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE (MetaWindowActor, meta_window_actor, CLUTTER_TY
+                                   G_IMPLEMENT_INTERFACE (META_TYPE_CULLABLE, cullable_iface_init)
+                                   G_IMPLEMENT_INTERFACE (META_TYPE_SCREEN_CAST_WINDOW, screen_cast_window_iface_init));
+ 
++static void
++prefs_changed_callback (MetaPreference pref, gpointer data)
++{
++  MetaWindowActor *self = data;
++  if (pref == META_PREF_WINDOW_EDGE_PADDING ||
++      pref == META_PREF_CORNER_RADIUS)
++    {
++      meta_window_actor_setup_glsl(self);
++      meta_window_actor_update_clipped_bounds(self);
++      update_rounded_corner_bounds(self);
++    }
++}
++
++static ClutterShaderEffect*
++create_clip_effect(void)
++{
++  ClutterShaderEffect *effect=
++    CLUTTER_SHADER_EFFECT(clutter_shader_effect_new(CLUTTER_FRAGMENT_SHADER));
++  if (!clutter_shader_effect_set_shader_source(effect,
++                                               ROUNDED_CLIP_WINDOW_FRAGMENT_SHADER_CODE))
++  {
++    g_clear_object(&effect);
++  }
++  
++  clutter_shader_effect_set_uniform(effect, "tex", G_TYPE_INT, 1, 0);
++  return effect;
++}
++
++static void
++check_meta_window_surface_actor(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  MetaSurfaceActor *surface = meta_window_actor_get_surface(self);
++
++  if (!priv->effect_setuped && surface && priv->round_clip_effect)
++  {
++    clutter_actor_add_effect_with_name(CLUTTER_ACTOR(surface),
++                                       "Rounded Corners Effect(Surface)",
++                                       CLUTTER_EFFECT(priv->round_clip_effect));
++    priv->effect_setuped = true;
 +  }
 +}
 +
-+gboolean
-+meta_window_actor_should_clip(MetaWindowActor *self)
++void
++update_rounded_corner_bounds(MetaWindowActor *self)
++{
++  MetaRectangle frame_rect;
++  MetaRectangle buf_rect;
++  MetaWindow *window = meta_window_actor_get_meta_window(self);
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++
++  meta_window_get_frame_rect(window, &frame_rect);
++  meta_window_get_buffer_rect(window, &buf_rect);
++
++  int offset_x = frame_rect.x - buf_rect.x;
++  int offset_y = frame_rect.y - buf_rect.y;
++  int padding = meta_prefs_get_window_edge_padding();
++
++  CornerBounds *corner = &(priv->corner_bounds);
++  corner->bounds.x = offset_x + padding + 1;                    // left
++  corner->bounds.y = offset_y + padding + 1;                    // top
++  corner->right   = offset_x + frame_rect.width  - padding;     // right
++  corner->bottom  = offset_y + frame_rect.height - padding;     // bottom
++  corner->bounds.width =  corner->right  - corner->bounds.x;
++  corner->bounds.height = corner->bottom - corner->bounds.y;
++}
++
++static gboolean
++_meta_window_actor_should_clip(MetaWindowActor *self)
 +{
 +  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
 +  MetaWindow *window = priv->window;
 +  MetaWindowType window_type = meta_window_get_window_type(window);
 +
-+  return !(
-+    window_type == META_WINDOW_DOCK ||
-+    window_type == META_WINDOW_POPUP_MENU ||
-+    window_type == META_WINDOW_DROPDOWN_MENU ||
-+    window_type == META_WINDOW_OVERRIDE_OTHER ||
-+    meta_window_get_maximized(window) ||
-+    meta_window_get_client_type(window) == META_WINDOW_CLIENT_TYPE_WAYLAND
-+  );
++  if (meta_window_get_maximized(window) ||
++    meta_window_get_client_type(window) == META_WINDOW_CLIENT_TYPE_WAYLAND)
++    return FALSE;
++
++  switch (window_type)
++  {
++    case META_WINDOW_DOCK:
++    case META_WINDOW_POPUP_MENU:
++    case META_WINDOW_DROPDOWN_MENU:
++    case META_WINDOW_OVERRIDE_OTHER: 
++    case META_WINDOW_DND:
++    case META_WINDOW_MENU:
++    case META_WINDOW_COMBO:
++    case META_WINDOW_DESKTOP:
++    case META_WINDOW_TOOLBAR:
++      return FALSE;
++    default:
++      return TRUE;
++  }
 +}
++
 +
 +void
 +meta_window_actor_setup_glsl(MetaWindowActor *self)
 +{
 +  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
-+  ClutterShaderEffect *effect = CLUTTER_SHADER_EFFECT(priv->round_clip_effect);
-+  MetaSurfaceActor *surface = priv->surface;
-+  ClutterActor *actor = CLUTTER_ACTOR(surface);
-+  const float r = 12;
++  ClutterShaderEffect *effect = priv->round_clip_effect;
++  ClutterActor *actor = CLUTTER_ACTOR(priv->surface);
 +
-+   if (surface == NULL)
-+    return ;
-+
-+  if (!priv->effect_setuped)
-+  {
-+    effect = CLUTTER_SHADER_EFFECT(clutter_shader_effect_new(CLUTTER_FRAGMENT_SHADER));
-+
-+    if (clutter_shader_effect_set_shader_source(effect,
-+                                                ROUNDED_CLIP_FRAGMENT_SHADER_CODE))
-+    {
-+      clutter_actor_add_effect(actor, CLUTTER_EFFECT(effect));
-+      clutter_shader_effect_set_uniform(effect, "tex", G_TYPE_INT, 1, 0);
-+    }
-+    else
-+    {
-+      g_object_unref(effect);
-+      effect = NULL;
-+    }
-+    priv->round_clip_effect = CLUTTER_EFFECT(effect);
-+    priv->effect_setuped = TRUE;
-+  }
-+
-+  if (effect == NULL)
-+    return;
++  check_meta_window_surface_actor(self);
 +  
 +  clutter_shader_effect_set_uniform(effect,"opacity",
 +                                    G_TYPE_FLOAT, 1,
 +                                    clutter_actor_get_opacity(actor) / 255.0f);
 +
-+  if (!meta_window_actor_should_clip(self)) 
-+  {
++  priv->should_clip = _meta_window_actor_should_clip(self);
++   if (!priv->should_clip) 
++   {
 +    clutter_shader_effect_set_uniform(effect, "will_clip", G_TYPE_INT, 1, 0);
 +    return ;
 +  }
 +
-+  MetaRectangle frame_rect;
-+  MetaRectangle buf_rect;
-+  float w, h;
++  float x1 = priv->corner_bounds.bounds.x;
++  float y1 = priv->corner_bounds.bounds.y;
++  float x2 = priv->corner_bounds.right;
++  float y2 = priv->corner_bounds.bottom;
++  gfloat w, h;
 +
-+  clutter_actor_get_size(CLUTTER_ACTOR(actor), &w, &h);
-+  meta_window_get_frame_rect(priv->window, &frame_rect);
-+  meta_window_get_buffer_rect(priv->window, &buf_rect);
-+
-+  float inner_pix = 1.0f;
-+
-+  float x1 = frame_rect.x - buf_rect.x + 1.0f + inner_pix;
-+  float y1 = frame_rect.y - buf_rect.y + 1.0f + inner_pix;
-+  float x2 = frame_rect.x - buf_rect.x + frame_rect.width  - inner_pix;
-+  float y2 = frame_rect.y - buf_rect.y + frame_rect.height - inner_pix;
++  const uint r = meta_prefs_get_round_corner_radius();
++  clutter_actor_get_size(actor, &w, &h);
 +
 +  clutter_shader_effect_set_uniform(effect, "will_clip", G_TYPE_INT, 1, 1);
 +  clutter_shader_effect_set_uniform(effect, "bounds", G_TYPE_FLOAT,
@@ -409,18 +446,202 @@ index d4fc9a43a..536134b70 100644
 +                                    2, 1. / w, 1. / h);
 +}
 +
++gboolean
++meta_window_actor_should_clip(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
++
++  return priv->should_clip; 
++}
++
++void
++meta_window_actor_get_corner_rect(MetaWindowActor *self,
++                                  MetaRectangle *rect)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  *rect = priv->corner_bounds.bounds;
++}
++
+ static void
+ meta_window_actor_class_init (MetaWindowActorClass *klass)
+ {
+@@ -216,6 +478,10 @@ meta_window_actor_init (MetaWindowActor *self)
+     meta_window_actor_get_instance_private (self);
+ 
+   priv->geometry_scale = 1;
++  priv->round_clip_effect = create_clip_effect();
++  priv->effect_setuped = FALSE;
++
++  meta_prefs_add_listener(prefs_changed_callback, self);
+ }
+ 
+ static void
+@@ -675,6 +941,9 @@ meta_window_actor_after_effects (MetaWindowActor *self)
+ 
+   if (priv->needs_destroy)
+     {
++      meta_prefs_remove_listener(prefs_changed_callback, self);
++      clutter_actor_remove_effect(CLUTTER_ACTOR(self),
++                                  CLUTTER_EFFECT(priv->round_clip_effect));
+       clutter_actor_destroy (CLUTTER_ACTOR (self));
+     }
+   else
+@@ -803,6 +1072,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
+     clutter_actor_destroy (CLUTTER_ACTOR (self));
+ }
+ 
++void
++meta_window_actor_update_clipped_bounds(MetaWindowActor *window_actor)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private(window_actor);
++  MetaWindow *window = priv->window;
++
++  if (window && window->frame_bounds) {
++    cairo_region_destroy(window->frame_bounds);
++    window->frame_bounds = NULL;
++  }
++}
++
  MetaWindowActorChanges
  meta_window_actor_sync_actor_geometry (MetaWindowActor *self,
                                         gboolean         did_placement)
-@@ -861,6 +1059,8 @@ meta_window_actor_sync_actor_geometry (MetaWindowActor *self,
-   if (changes & META_WINDOW_ACTOR_CHANGE_SIZE)
-     clutter_actor_set_size (actor, window_rect.width, window_rect.height);
+diff --git a/src/core/prefs.c b/src/core/prefs.c
+index 60d7a278a..ef5baba94 100644
+--- a/src/core/prefs.c
++++ b/src/core/prefs.c
+@@ -62,6 +62,9 @@
+ #define KEY_WORKSPACES_ONLY_ON_PRIMARY "workspaces-only-on-primary"
+ #define KEY_LOCATE_POINTER "locate-pointer"
  
-+  meta_window_actor_setup_glsl(self);
++#define KEY_ROUND_CORNERS_RADIUS "round-corners-radius"
++#define KEY_CLIP_EDGE_PADDING "window-edge-padding"
 +
-   return changes;
- }
+ /* These are the different schemas we are keeping
+  * a GSettings instance for */
+ #define SCHEMA_GENERAL         "org.gnome.desktop.wm.preferences"
+@@ -119,6 +122,9 @@ static gboolean show_fallback_app_menu = TRUE;
+ static GDesktopVisualBellType visual_bell_type = G_DESKTOP_VISUAL_BELL_FULLSCREEN_FLASH;
+ static MetaButtonLayout button_layout;
  
++static int round_corner_radius = 8;
++static int window_edge_padding = 1;
++
+ /* NULL-terminated array */
+ static char **workspace_names = NULL;
+ 
+@@ -514,6 +520,22 @@ static MetaIntPreference preferences_int[] =
+       },
+       &cursor_size
+     },
++    {
++      {
++        "round-corners-radius",
++        SCHEMA_MUTTER,
++        META_PREF_CORNER_RADIUS,
++      },
++      &round_corner_radius,
++    },
++    {
++      {
++        "window-edge-padding",
++        SCHEMA_MUTTER,
++        META_PREF_WINDOW_EDGE_PADDING,
++      },
++      &window_edge_padding,
++    },
+     { { NULL, 0, 0 }, NULL },
+   };
+ 
+@@ -1758,6 +1780,12 @@ meta_preference_to_string (MetaPreference pref)
+ 
+     case META_PREF_CHECK_ALIVE_TIMEOUT:
+       return "CHECK_ALIVE_TIMEOUT";
++
++    case META_PREF_CORNER_RADIUS:
++      return "META_PREF_CORNER_RADIUS";
++
++    case META_PREF_WINDOW_EDGE_PADDING:
++      return "META_PREF_WINDOW_EDGE_PADDING";
+     }
+ 
+   return "(unknown)";
+@@ -2226,3 +2254,16 @@ meta_prefs_set_force_fullscreen (gboolean whether)
+ {
+   force_fullscreen = whether;
+ }
++
++int
++meta_prefs_get_round_corner_radius (void)
++{
++  return round_corner_radius;
++}
++
++
++int
++meta_prefs_get_window_edge_padding (void)
++{
++  return window_edge_padding;
++}
+\ No newline at end of file
+diff --git a/src/meson.build b/src/meson.build
+index 284bdf522..b79ba1b71 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -163,6 +163,18 @@ if get_option('verbose')
+   ]
+ endif
+ 
++# libshell_enums = gnome.mkenums_simple('shell-enum-types',
++#   sources: [
++#     'shell-blur-effect.h',
++#   ]
++# )
++
++# libshell_src = [
++#   libshell_enums,
++#   'shell-blur-effect.h',
++#   'shell-blur-effect.c',
++# ]
++
+ mutter_sources = [
+   'backends/edid.h',
+   'backends/edid-parse.c',
+@@ -967,6 +979,7 @@ mutter_built_sources += mutter_enum_types
+ 
+ libmutter = shared_library(libmutter_name,
+   mutter_sources,
++  # mutter_sources + libshell_src,
+   mutter_built_sources,
+   version: '0.0.0',
+   soversion: 0,
+diff --git a/src/meta/prefs.h b/src/meta/prefs.h
+index e2c8b46cf..1d442bcd0 100644
+--- a/src/meta/prefs.h
++++ b/src/meta/prefs.h
+@@ -106,6 +106,9 @@ typedef enum
+   META_PREF_DRAG_THRESHOLD,
+   META_PREF_LOCATE_POINTER,
+   META_PREF_CHECK_ALIVE_TIMEOUT,
++
++  META_PREF_CORNER_RADIUS,
++  META_PREF_WINDOW_EDGE_PADDING,
+ } MetaPreference;
+ 
+ typedef void (* MetaPrefsChangedFunc) (MetaPreference pref,
+@@ -236,6 +239,12 @@ int      meta_prefs_get_draggable_border_width (void);
+ META_EXPORT
+ int      meta_prefs_get_drag_threshold (void);
+ 
++META_EXPORT
++int      meta_prefs_get_round_corner_radius (void);
++
++META_EXPORT
++int      meta_prefs_get_window_edge_padding (void);
++
+ /**
+  * MetaKeyBindingAction:
+  * @META_KEYBINDING_ACTION_NONE: FILLME
 diff --git a/src/ui/frames.c b/src/ui/frames.c
 index 48b2a361c..8be6a8f8b 100644
 --- a/src/ui/frames.c

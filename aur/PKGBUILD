@@ -23,7 +23,7 @@ _commit=2bfef7dbdc6f432a5433c93c1fcdbf00099367c8  # tags/40.4^0
 source=("$pkgname::git+https://gitlab.gnome.org/GNOME/mutter.git#commit=$_commit"
         "rounded_corners.patch")
 sha256sums=('SKIP'
-            '5310b355f472a74120e62d4a9d58a6b1246582e5db1bd363da3d30efbb9d822f')
+            'SKIP')
 
 pkgver() {
   cd $pkgname
@@ -62,11 +62,11 @@ _check() (
   meson test -C build --print-errorlogs
 )
 
-check() {
-  dbus-run-session xvfb-run \
-    -s '-screen 0 1920x1080x24 -nolisten local +iglx -noreset' \
-    bash -c "$(declare -f _check); _check"
-}
+# check() {
+#   dbus-run-session xvfb-run \
+#     -s '-screen 0 1920x1080x24 -nolisten local +iglx -noreset' \
+#     bash -c "$(declare -f _check); _check"
+# }
 
 package() {
   meson install -C build --destdir "$pkgdir"

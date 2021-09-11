@@ -3,6 +3,7 @@
 
 typedef struct {
   CoglPipeline *pipeline;
+  CoglTexture *corner_texture;
   ClutterActor *actor;
   cairo_rectangle_int_t bounds;
 } MetaClipEffectPrivate;
@@ -19,98 +20,66 @@ G_DEFINE_TYPE_WITH_PRIVATE(MetaClipEffect, meta_clip_effect, CLUTTER_TYPE_OFFSCR
  *
  */
 #define ROUNDED_CLIP_FRAGMENT_SHADER_DECLARATIONS                            \
-"uniform vec4 bounds;           // x, y: top left; w, v: bottom right     \n"\
-"uniform vec4 corner_centers_1; // x, y: top left; w, v: top right        \n"\
-"uniform vec4 corner_centers_2; // x, y: bottom right; w, v: bottom left  \n"\
-"uniform vec2 pixel_step;                                                 \n"\
-"uniform int skip;                                                        \n"\
-"                                                                         \n"\
-"float                                                                    \n"\
-"ellipsis_dist (vec2 p, vec2 radius)                                      \n"\
-"{                                                                        \n"\
-"  if (radius == vec2(0, 0))                                              \n"\
-"    return 0.0;                                                          \n"\
-"                                                                         \n"\
-"  vec2 p0 = p / radius;                                                  \n"\
-"  vec2 p1 = (2.0 * p0) / radius;                                         \n"\
-"                                                                         \n"\
-"  return (dot(p0, p0) - 1.0) / length (p1);                              \n"\
-"}                                                                        \n"\
-"                                                                         \n"\
-"float                                                                    \n"\
-"ellipsis_coverage (vec2 point, vec2 center, vec2 radius)                 \n"\
-"{                                                                        \n"\
-"  float d = ellipsis_dist ((point - center), radius);                    \n"\
-"  return clamp (0.5 - d, 0.0, 1.0);                                      \n"\
-"}                                                                        \n"\
-"                                                                         \n"\
-"float                                                                    \n"\
-"rounded_rect_coverage (vec4 bounds,                                      \n"\
-"                       vec4 corner_centers_1,                            \n"\
-"                       vec4 corner_centers_2,                            \n"\
-"                       vec2 p)                                           \n"\
-"{                                                                        \n"\
-"  if (p.x < bounds.x || p.y < bounds.y ||                                \n"\
-"      p.x >= bounds.z || p.y >= bounds.w)                                \n"\
-"    return 0.0;                                                          \n"\
-"                                                                         \n"\
-"  vec2 ref_tl = corner_centers_1.xy;                                     \n"\
-"  vec2 ref_tr = corner_centers_1.zw;                                     \n"\
-"  vec2 ref_br = corner_centers_2.xy;                                     \n"\
-"  vec2 ref_bl = corner_centers_2.zw;                                     \n"\
-"                                                                         \n"\
-"  if (p.x >= ref_tl.x && p.x >= ref_bl.x &&                              \n"\
-"      p.x <= ref_tr.x && p.x <= ref_br.x)                                \n"\
-"    return 1.0;                                                          \n"\
-"                                                                         \n"\
-"  if (p.y >= ref_tl.y && p.y >= ref_tr.y &&                              \n"\
-"      p.y <= ref_bl.y && p.y <= ref_br.y)                                \n"\
-"    return 1.0;                                                          \n"\
-"                                                                         \n"\
-"  vec2 rad_tl = corner_centers_1.xy - bounds.xy;                         \n"\
-"  vec2 rad_tr = corner_centers_1.zw - bounds.zy;                         \n"\
-"  vec2 rad_br = corner_centers_2.xy - bounds.zw;                         \n"\
-"  vec2 rad_bl = corner_centers_2.zw - bounds.xw;                         \n"\
-"                                                                         \n"\
-"  float d_tl = ellipsis_coverage(p, ref_tl, rad_tl);                     \n"\
-"  float d_tr = ellipsis_coverage(p, ref_tr, rad_tr);                     \n"\
-"  float d_br = ellipsis_coverage(p, ref_br, rad_br);                     \n"\
-"  float d_bl = ellipsis_coverage(p, ref_bl, rad_bl);                     \n"\
-"                                                                         \n"\
-"  vec4 corner_coverages = 1.0 - vec4(d_tl, d_tr, d_br, d_bl);            \n"\
-"                                                                         \n"\
-"  bvec4 is_out = bvec4(p.x < ref_tl.x && p.y < ref_tl.y,                 \n"\
-"                       p.x > ref_tr.x && p.y < ref_tr.y,                 \n"\
-"                       p.x > ref_br.x && p.y > ref_br.y,                 \n"\
-"                       p.x < ref_bl.x && p.y > ref_bl.y);                \n"\
-"                                                                         \n"\
-"  return 1.0 - dot(vec4(is_out), corner_coverages);                      \n"\
-"}                                                                        \n"
+"uniform vec2 corner_scale;                                                             \n"\
+"uniform vec2 offset_lt;   // left top                                                  \n"\
+"uniform vec2 offset_rt;   // right top                                                 \n"\
+"uniform vec2 offset_lb;   // left bottom                                               \n"\
+"uniform vec2 offset_rb;   // right bottom                                              \n"\
+"uniform vec4 bounds;                                                                   \n"\
+"                                                                                       \n"\
+"float cal_alpha(void) {                                                                \n"\
+"  vec2 scale = corner_scale;                                                           \n"\
+"  vec2 coord = cogl_tex_coord0_in.xy;                                                  \n"\
+"  vec4 fg;                                                                             \n"\
+"                                                                                       \n"\
+"  if(coord.x < bounds.x || coord.y < bounds.y ||                                       \n"\
+"    coord.x > bounds.z || coord.y > bounds.w) {                                        \n"\
+"    return 0.0;                                                                        \n"\
+"  }                                                                                    \n"\
+"                                                                                       \n"\
+"  if(coord.x < 0.5) {                                                                  \n"\
+"    if(coord.y < 0.5) {                                                                \n"\
+"      vec2 cornerCoord = vec2(coord.x * scale.x, coord.y * scale.y);                   \n"\
+"      fg = texture2D(cogl_sampler1, cornerCoord - offset_lt);                          \n"\
+"    } else {                                                                           \n"\
+"      vec2 cornerCoordBL = vec2(coord.x * scale.x, (1.0 - coord.y) * scale.y);         \n"\
+"      fg = texture2D(cogl_sampler1, cornerCoordBL - offset_lb);                        \n"\
+"    }                                                                                  \n"\
+"  } else {                                                                             \n"\
+"    if(coord.y < 0.5) {                                                                \n"\
+"      vec2 cornerCoordTR = vec2((1.0 - coord.x) * scale.x, coord.y * scale.y);         \n"\
+"      fg = texture2D(cogl_sampler1, cornerCoordTR - offset_rt);                        \n"\
+"    } else {                                                                           \n"\
+"      vec2 cornerCoordBR = vec2((1.0 - coord.x) * scale.x, (1.0 - coord.y) * scale.y); \n"\
+"      fg = texture2D(cogl_sampler1, cornerCoordBR - offset_rb);                        \n"\
+"    }                                                                                  \n"\
+"  }                                                                                    \n"\
+"                                                                                       \n"\
+"  return fg.r;                                                                         \n"\
+"}                                                                                      \n"
 
 #define ROUNDED_CLIP_FRAGMENT_SHADER_CODE                                    \
-"vec2 texture_coord;                                                      \n"\
-"                                                                         \n"\
-"texture_coord = cogl_tex_coord0_in.xy / pixel_step;                      \n"\
-"                                                                         \n"\
-"if (skip == 0)                                                           \n"\
-"cogl_color_out *= rounded_rect_coverage (bounds,                         \n"\
-"                                         corner_centers_1,               \n"\
-"                                         corner_centers_2,               \n"\
-"                                         texture_coord);                 \n"\
+"vec4 bg = texture2D(cogl_sampler0, cogl_tex_coord0_in.xy);                  \n"\
+"cogl_color_out = bg * cal_alpha();                      \n"
+// "cogl_color_out = bg * 0.6 + (vec4(0.4) * cal_alpha());                      \n"
+
+
 
 static CoglPipeline *
 meta_clip_effect_class_create_pipeline(ClutterOffscreenEffect *effect,
-                                       CoglTexture *texture)
+                                       CoglTexture            *texture)
 {
   MetaClipEffect *clip_effect = META_CLIP_EFFECT (effect);
   MetaClipEffectPrivate *priv = meta_clip_effect_get_instance_private(clip_effect);
   cogl_pipeline_set_layer_texture (priv->pipeline, 0, texture);
+  cogl_pipeline_set_layer_texture(priv->pipeline, 1, priv->corner_texture);
+
   return cogl_object_ref (priv->pipeline);
 }
 
 static void
 meta_clip_effect_set_actor(ClutterActorMeta *meta,
-                           ClutterActor *actor)
+                           ClutterActor     *actor)
 {
   ClutterActorMetaClass *meta_class 
     = CLUTTER_ACTOR_META_CLASS(meta_clip_effect_parent_class);
@@ -128,9 +97,72 @@ meta_clip_effect_dispose(GObject *gobject)
     meta_clip_effect_get_instance_private(META_CLIP_EFFECT(effect));
 
   if (priv->pipeline != NULL)
+  {
     g_clear_pointer(&priv->pipeline, cogl_object_unref);
+  }
 
   G_OBJECT_CLASS (meta_clip_effect_parent_class)->dispose (gobject);
+}
+
+static
+CoglTexture *gen_texture(void)
+{
+  int radius = meta_prefs_get_round_corner_radius();
+  int stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, radius);
+  uint8_t *pixel = g_malloc0(stride * radius);
+  ClutterBackend *backend = clutter_get_default_backend ();
+  CoglContext *ctx = clutter_backend_get_cogl_context (backend);
+  cairo_surface_t *image = 
+    cairo_image_surface_create_for_data(pixel,
+                                        CAIRO_FORMAT_ARGB32,
+                                        radius,
+                                        radius,
+                                        stride);
+  cairo_t *cr = cairo_create(image);
+
+  /* draw a 1 / 4 circel, a small texture sized with radius x radius
+   * texture will be look like this:
+   * 
+   *                     ******
+   *                ***********
+   *              *************
+   *            ***************
+   *           ****************
+   *          *****************
+   *         ******************
+   *        *******************
+   *        *******************
+   *        *******************
+   *  
+   */
+
+  cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
+  cairo_fill(cr);
+  cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+  cairo_move_to(cr, 0, radius);
+  cairo_arc(cr, radius, radius, radius, M_PI, 1.5 * M_PI);
+  cairo_line_to(cr, radius, radius);
+  cairo_line_to(cr, 0, radius);
+  cairo_close_path (cr);
+  cairo_fill(cr);
+
+  cairo_surface_flush(image);
+
+  GError *error = NULL;
+  CoglTexture2D *texture =
+    cogl_texture_2d_new_from_data(ctx, radius, radius,
+                                  COGL_PIXEL_FORMAT_ARGB_8888,
+                                  stride, pixel, &error);
+  if (error)
+  {
+    g_warning ("Failed to allocate mask texture: %s", error->message);
+    g_error_free (error);
+    g_clear_pointer(&texture, cogl_object_unref);
+  }
+  g_free(pixel);
+  cairo_destroy(cr);
+  cairo_surface_destroy (image);
+  return COGL_TEXTURE(texture);
 }
 
 static void
@@ -158,6 +190,7 @@ meta_clip_effect_init(MetaClipEffect *self)
         clutter_backend_get_cogl_context (clutter_get_default_backend ());
 
       klass->base_pipeline = cogl_pipeline_new (ctx);
+      klass->base_corner_texture = gen_texture();
 
       snippet = cogl_snippet_new (COGL_SNIPPET_HOOK_FRAGMENT,
                                   ROUNDED_CLIP_FRAGMENT_SHADER_DECLARATIONS,
@@ -169,6 +202,8 @@ meta_clip_effect_init(MetaClipEffect *self)
     }
 
   priv->pipeline = cogl_pipeline_copy (klass->base_pipeline);
+  priv->corner_texture = klass->base_corner_texture;
+  g_print("corner ref: %ld\n", COGL_OBJECT(priv->corner_texture)->ref_count);
   priv->actor = NULL;
 }
 
@@ -178,70 +213,73 @@ MetaClipEffect *meta_clip_effect_new(void)
 }
 
 void
-meta_clip_effect_set_bounds(MetaClipEffect *effect, 
-                              cairo_rectangle_int_t *_bounds)
+meta_clip_effect_set_bounds(MetaClipEffect        *effect, 
+                            cairo_rectangle_int_t *_bounds,
+                            int                   padding[4])
 {
+  // padding: [left, right, top, bottom]
+
   MetaClipEffectPrivate *priv = meta_clip_effect_get_instance_private(effect);
 
   g_return_if_fail(priv->pipeline && priv->actor);
-  float padding = meta_prefs_get_window_edge_padding();
   float radius = meta_prefs_get_round_corner_radius();
 
-  priv->bounds.x = _bounds->x + padding + 1;
-  priv->bounds.y = _bounds->y + padding + 1;
-  priv->bounds.width =  _bounds->width  - 2 * padding - 1;
-  priv->bounds.height = _bounds->height - 2 * padding - 1;
-
-  float x1 = priv->bounds.x;
-  float y1 = priv->bounds.y;
-  float x2 = priv->bounds.width + x1;
-  float y2 = priv->bounds.height + y1;
+  priv->bounds.x = _bounds->x + padding[0];
+  priv->bounds.y = _bounds->y + padding[2];
+  priv->bounds.width =  _bounds->width  - padding[1] - padding[0];
+  priv->bounds.height = _bounds->height - padding[2] - padding[3];
   float w, h;
 
   clutter_actor_get_size(priv->actor, &w, &h);
 
-  int location_skip = 
-    cogl_pipeline_get_uniform_location(priv->pipeline, "skip");
+  // int location_skip = 
+  //   cogl_pipeline_get_uniform_location(priv->pipeline, "skip");
+  int location_offset_lt = 
+    cogl_pipeline_get_uniform_location(priv->pipeline, "offset_lt");
+  int location_offset_rt =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "offset_rt");
+  int location_offset_lb =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "offset_lb");
+  int location_offset_rb =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "offset_rb");
+  int location_corner_scale = 
+    cogl_pipeline_get_uniform_location(priv->pipeline, "corner_scale");
   int location_bounds = 
     cogl_pipeline_get_uniform_location(priv->pipeline, "bounds");
-  int location_corner_centers_1 =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "corner_centers_1");
-  int location_corner_centers_2 =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "corner_centers_2");
-  int location_pixel_step =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "pixel_step");
 
-  float bounds[] = { x1, y1, x2, y2 };
-  float corner_centers_1[] = {
-    x1 + radius,
-    y1 + radius,
-    x2 - radius,
-    y1 + radius
+  float bounds[] = {
+    priv->bounds.x / w,
+    priv->bounds.y / h,
+    (priv->bounds.x + priv->bounds.width) / w,
+    (priv->bounds.y + priv->bounds.height) / h
   };
-  float corner_centers_2[] = {
-    x2 - radius,
-    y2 - radius,
-    x1 + radius,
-    y2 - radius
-  };
-  float pixel_step[] = { 1. / w, 1. / h };
+  float corner_scale[] = { w / radius , h / radius };
+  float top = priv->bounds.y;
+  float left = priv->bounds.x;
+  float right = w - priv->bounds.width - priv->bounds.x;
+  float bottom = h - priv->bounds.height - priv->bounds.y;
+
+  float offset_lt[] = { left / (float) radius, top / (float)radius };
+  float offset_rt[] = { right / (float) radius, top / (float)radius };
+  float offset_lb[] = { left / (float) radius, bottom / (float)radius };
+  float offset_rb[] = { right / (float) radius, bottom / (float)radius };
 
   cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_bounds,
-                                  4, 1, bounds);
+                                  location_offset_lt, 2, 1, offset_lt);
   cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_corner_centers_1,
-                                  4, 1, corner_centers_1);
+                                  location_offset_rt, 2, 1, offset_rt);
   cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_corner_centers_2,
-                                  4, 1, corner_centers_2);
+                                  location_offset_lb, 2, 1, offset_lb);
   cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_pixel_step,
-                                  2, 1, pixel_step);
-  cogl_pipeline_set_uniform_1i(priv->pipeline, location_skip, 0);
+                                  location_offset_rb, 2, 1, offset_rb);
+  cogl_pipeline_set_uniform_float(priv->pipeline,
+                                  location_corner_scale, 2, 1, corner_scale);
+  cogl_pipeline_set_uniform_float(priv->pipeline,
+                                  location_bounds, 4, 1, bounds);
 }
 
-void meta_clip_effect_skip(MetaClipEffect *effect)
+void
+meta_clip_effect_skip(MetaClipEffect *effect)
 {
   MetaClipEffectPrivate *priv = meta_clip_effect_get_instance_private(effect);
 
@@ -253,8 +291,36 @@ void meta_clip_effect_skip(MetaClipEffect *effect)
   cogl_pipeline_set_uniform_1i(priv->pipeline, location_skip, 1);
 }
 
-void meta_clip_effect_get_bounds(MetaClipEffect *effect, cairo_rectangle_int_t *bounds)
+void
+meta_clip_effect_get_bounds(MetaClipEffect        *effect,
+                            cairo_rectangle_int_t *bounds)
 {
   MetaClipEffectPrivate *priv = meta_clip_effect_get_instance_private(effect);
   *bounds = priv->bounds;
+}
+
+void
+meta_clip_effect_update_corner_texture(MetaClipEffect *effect)
+{
+  MetaClipEffectClass *klass = META_CLIP_EFFECT_GET_CLASS(effect);
+  MetaClipEffectPrivate *priv = meta_clip_effect_get_instance_private(effect);
+
+  if (klass->base_corner_texture == priv->corner_texture)
+  {
+    CoglTexture *new_texture = gen_texture();
+    if (new_texture != NULL)
+    {
+      cogl_object_unref(klass->base_corner_texture);
+      klass->base_corner_texture = new_texture;
+      priv->corner_texture = klass->base_corner_texture;
+
+      cogl_pipeline_set_layer_texture(priv->pipeline, 1, priv->corner_texture);
+    }
+  } else {
+    // it's need-not call `cogl_object_unref` to the old texture
+    priv->corner_texture = klass->base_corner_texture;
+    // because this function will call `cogl_object_unref` to the old texture
+    // at the same time, this function will add the reference count of new texture
+    cogl_pipeline_set_layer_texture(priv->pipeline, 1, priv->corner_texture);
+  }
 }

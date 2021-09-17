@@ -1,3 +1,7 @@
+/**
+ * for mutter 40.4
+ */
+
 #include "meta_clip_effect.h"
 #include "meta/prefs.h"
 
@@ -11,13 +15,8 @@ typedef struct {
 G_DEFINE_TYPE_WITH_PRIVATE(MetaClipEffect, meta_clip_effect, CLUTTER_TYPE_OFFSCREEN_EFFECT)
 
 /*
- * take from src/compositor/meta-background-content.c
- * 
- * The ellipsis_dist(), ellipsis_coverage() and rounded_rect_coverage() are
- * copied from GSK, see gsk_ellipsis_dist(), gsk_ellipsis_coverage(), and
- * gsk_rounded_rect_coverage() here:
- * https://gitlab.gnome.org/GNOME/gtk/-/blob/master/gsk/resources/glsl/preamble.fs.glsl
- *
+ * THIS shader copied from the kwin-plugin of CutefishOS project
+ * see https://github.com/cutefishos/kwin-plugins/blob/main/plugins/roundedwindow/roundedwindow.cpp
  */
 #define ROUNDED_CLIP_FRAGMENT_SHADER_DECLARATIONS                            \
 "uniform vec2 corner_scale;                                                             \n"\
@@ -26,6 +25,8 @@ G_DEFINE_TYPE_WITH_PRIVATE(MetaClipEffect, meta_clip_effect, CLUTTER_TYPE_OFFSCR
 "uniform vec2 offset_lb;   // left bottom                                               \n"\
 "uniform vec2 offset_rb;   // right bottom                                              \n"\
 "uniform vec4 bounds;                                                                   \n"\
+"uniform float opacity;                                                                 \n"\
+"uniform int skip;                                                                      \n"\
 "                                                                                       \n"\
 "float cal_alpha(void) {                                                                \n"\
 "  vec2 scale = corner_scale;                                                           \n"\
@@ -59,8 +60,11 @@ G_DEFINE_TYPE_WITH_PRIVATE(MetaClipEffect, meta_clip_effect, CLUTTER_TYPE_OFFSCR
 "}                                                                                      \n"
 
 #define ROUNDED_CLIP_FRAGMENT_SHADER_CODE                                    \
-"vec4 bg = texture2D(cogl_sampler0, cogl_tex_coord0_in.xy);                  \n"\
-"cogl_color_out = bg * cal_alpha();                      \n"
+"vec4 bg = texture2D(cogl_sampler0, cogl_tex_coord0_in.xy) * opacity;                  \n"\
+"if (skip == 1)\n"\
+"  cogl_color_out = bg;                      \n"\
+"else\n"\
+"  cogl_color_out = bg * cal_alpha();                      \n"
 // "cogl_color_out = bg * 0.6 + (vec4(0.4) * cal_alpha());                      \n"
 
 
@@ -120,19 +124,15 @@ CoglTexture *gen_texture(void)
                                         stride);
   cairo_t *cr = cairo_create(image);
 
-  /* draw a 1 / 4 circel, a small texture sized with radius x radius
+  /* draw a 1 / 4 circel, a small texture sifed with radius x radius
    * texture will be look like this:
    * 
-   *                     ******
-   *                ***********
-   *              *************
-   *            ***************
-   *           ****************
-   *          *****************
-   *         ******************
-   *        *******************
-   *        *******************
-   *        *******************
+   *                 XXXX
+   *              XXXXXXX
+   *            XXXXXXXXX
+   *           XXXXXXXXXX
+   *          XXXXXXXXXXX
+   *          XXXXXXXXXXX
    *  
    */
 
@@ -203,7 +203,7 @@ meta_clip_effect_init(MetaClipEffect *self)
 
   priv->pipeline = cogl_pipeline_copy (klass->base_pipeline);
   priv->corner_texture = klass->base_corner_texture;
-  g_print("corner ref: %ld\n", COGL_OBJECT(priv->corner_texture)->ref_count);
+  // g_print("corner ref: %ld\n", COGL_OBJECT(priv->corner_texture)->ref_count);
   priv->actor = NULL;
 }
 
@@ -232,8 +232,10 @@ meta_clip_effect_set_bounds(MetaClipEffect        *effect,
 
   clutter_actor_get_size(priv->actor, &w, &h);
 
-  // int location_skip = 
-  //   cogl_pipeline_get_uniform_location(priv->pipeline, "skip");
+  int location_skip = 
+    cogl_pipeline_get_uniform_location(priv->pipeline, "skip");
+  int location_opacity = 
+    cogl_pipeline_get_uniform_location(priv->pipeline, "opacity");
   int location_offset_lt = 
     cogl_pipeline_get_uniform_location(priv->pipeline, "offset_lt");
   int location_offset_rt =
@@ -276,6 +278,10 @@ meta_clip_effect_set_bounds(MetaClipEffect        *effect,
                                   location_corner_scale, 2, 1, corner_scale);
   cogl_pipeline_set_uniform_float(priv->pipeline,
                                   location_bounds, 4, 1, bounds);
+  cogl_pipeline_set_uniform_1f(priv->pipeline,
+                               location_opacity,
+                               clutter_actor_get_opacity(priv->actor) / 255.0);
+  cogl_pipeline_set_uniform_1i(priv->pipeline, location_skip, 0);
 }
 
 void

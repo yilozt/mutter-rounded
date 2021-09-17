@@ -1,31 +1,52 @@
-diff --git a/.gitignore b/.gitignore
-index cf5b826c2..fca4d7aad 100644
---- a/.gitignore
-+++ b/.gitignore
-@@ -1,5 +1,6 @@
- build-aux
- compile
-+.vscode
- config.h
- config.h.in
- ltmain.sh
 diff --git a/data/org.gnome.mutter.gschema.xml.in b/data/org.gnome.mutter.gschema.xml.in
-index 23fa9f3ad..ce0500ba3 100644
+index 23fa9f3ad..d3429b458 100644
 --- a/data/org.gnome.mutter.gschema.xml.in
 +++ b/data/org.gnome.mutter.gschema.xml.in
-@@ -2,6 +2,17 @@
+@@ -2,6 +2,49 @@
    <schema id="org.gnome.mutter" path="/org/gnome/mutter/"
            gettext-domain="@GETTEXT_DOMAIN@">
  
 +    <key name="round-corners-radius" type="i">
 +      <default>12</default>
-+      <range min="0" max="100"/>
++      <range min="2" max="100"/>
 +      <summary>Round Corners Radius</summary>
 +    </key>
 +
 +    <key name="clip-edge-padding" type="s">
-+      <default>"{\"global\": [1, 0, 1, 0], \"apps\": {}}"</default>
++      <default>"{\"global\": [0, 0, 0, 0], \"apps\": {}}"</default>
 +      <summary>padding of window will be clipped</summary>
++      <description>
++        A JSON string, Represents the clipping range of the window edge.
++        The array represents the clipping range of the four sides (left,
++        right, top, bottom) of the window.
++        
++        The key of "apps" object represent the instance part of the window's
++        `WM_CLASS` property, as same as the output of `xprop WM_CLASS|cut -d 
++        \" -f 1`
++
++        This is a example:
++
++          {
++            'global': [1, 2, 3, 4],
++            'apps': {
++              'code': [5, 6, 7, 8],
++              'typora': [9, 10, 11, 12]
++            }
++          }
++
++        For all window, cut the left, right, top and bottom sides by 1, 2
++        , 3 and 4 pixels respectively. But for Visual Studio Code and
++        Typora, we will cut different pixels.        
++      </description>
++    </key>
++
++    <key name="black-list" type="as">
++      <default>["qq.exe", "tim.exe"]</default>
++      <summary>window here will not be rounded</summary>
++      <description>
++        The contents of the list represent the instance part of the window's
++        `WM_CLASS`, as same as the output of `xprop WM_CLASS|cut -d \" -f 1`
++      </description>
 +    </key>
 +
      <key name="overlay-key" type="s">
@@ -139,7 +160,7 @@ index 64741e416..7ef9f6735 100644
 +
  #endif /* META_WINDOW_ACTOR_PRIVATE_H */
 diff --git a/src/compositor/meta-window-actor-x11.c b/src/compositor/meta-window-actor-x11.c
-index e18b1b28b..32de70e1e 100644
+index e18b1b28b..a1a7a22a1 100644
 --- a/src/compositor/meta-window-actor-x11.c
 +++ b/src/compositor/meta-window-actor-x11.c
 @@ -401,6 +401,8 @@ surface_size_changed (MetaSurfaceActor *actor,
@@ -170,20 +191,30 @@ index e18b1b28b..32de70e1e 100644
  
    return meta_window_actor_is_opaque (META_WINDOW_ACTOR (actor_x11));
  }
-@@ -1040,6 +1047,12 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
-        * entire window. */
-       region = cairo_region_create_rectangle (&client_area);
+@@ -1033,14 +1040,19 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
+     {
+       region = cairo_region_reference (window->shape_region);
      }
-+  
-+  if (!window->frame && meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
-+    {
+-  else
++  else if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)) && !window->frame)
+     {
 +      meta_window_actor_get_corner_rect(META_WINDOW_ACTOR(actor_x11), &client_area);
 +      region = cairo_region_create_rectangle(&client_area);  
 +    }
- 
++  else
++   {
+       /* If we don't have a shape on the server, that means that
+        * we have an implicit shape of one rectangle covering the
+        * entire window. */
+       region = cairo_region_create_rectangle (&client_area);
+-    }
+-
++   }
++  
    if (window->shape_region || window->frame)
      build_and_scan_frame_mask (actor_x11, region);
-@@ -1148,6 +1161,23 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
+ 
+@@ -1148,6 +1160,23 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
    cairo_region_destroy (opaque_region);
  }
  
@@ -207,7 +238,7 @@ index e18b1b28b..32de70e1e 100644
  static void
  update_frame_bounds (MetaWindowActorX11 *actor_x11)
  {
-@@ -1155,8 +1185,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
+@@ -1155,8 +1184,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
      meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_x11));
  
    g_clear_pointer (&actor_x11->frame_bounds, cairo_region_destroy);
@@ -223,8 +254,20 @@ index e18b1b28b..32de70e1e 100644
  }
  
  static void
+@@ -1296,7 +1330,10 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
+       cairo_region_t *clip = actor_x11->shadow_clip;
+       CoglFramebuffer *framebuffer;
+ 
+-      get_shape_bounds (actor_x11, &shape_bounds);
++      if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++        meta_window_actor_get_corner_rect(META_WINDOW_ACTOR(actor_x11), &shape_bounds);
++      else
++        get_shape_bounds (actor_x11, &shape_bounds);
+       get_shadow_params (actor_x11, appears_focused, &params);
+ 
+       /* The frame bounds are already subtracted from actor_x11->shadow_clip
 diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
-index d4fc9a43a..35f9b9ca8 100644
+index d4fc9a43a..e00a5321e 100644
 --- a/src/compositor/meta-window-actor.c
 +++ b/src/compositor/meta-window-actor.c
 @@ -41,6 +41,8 @@
@@ -320,8 +363,8 @@ index d4fc9a43a..35f9b9ca8 100644
 +  MetaWindow *window = priv->window;
 +  MetaWindowType window_type = meta_window_get_window_type(window);
 +
-+  if (meta_window_get_client_type(window)
-+    == META_WINDOW_CLIENT_TYPE_WAYLAND)
++  if (meta_window_get_client_type(window) == META_WINDOW_CLIENT_TYPE_WAYLAND ||
++      meta_prefs_in_black_list(window->res_name))
 +    {
 +      return FALSE;
 +    }
@@ -368,7 +411,7 @@ index d4fc9a43a..35f9b9ca8 100644
 +{
 +  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
 +  if(priv->round_clip_effect)
-+    meta_prefs_get_clip_edge_padding(priv->window->res_class,
++    meta_prefs_get_clip_edge_padding(priv->window->res_name,
 +                                     priv->clip_padding);
 +}
 +
@@ -389,7 +432,7 @@ index d4fc9a43a..35f9b9ca8 100644
        priv->window = g_value_dup_object (value);
 +      priv->round_clip_effect = create_clip_effect(self);
 +      if (priv->round_clip_effect)
-+        meta_prefs_get_clip_edge_padding(priv->window->res_class,
++        meta_prefs_get_clip_edge_padding(priv->window->res_name,
 +                                         priv->clip_padding);
        g_signal_connect_object (priv->window, "notify::appears-focused",
                                 G_CALLBACK (window_appears_focused_notify), self, 0);
@@ -425,7 +468,7 @@ index d4fc9a43a..35f9b9ca8 100644
  meta_window_actor_sync_actor_geometry (MetaWindowActor *self,
                                         gboolean         did_placement)
 diff --git a/src/core/prefs.c b/src/core/prefs.c
-index 60d7a278a..580e1f81e 100644
+index 60d7a278a..859d16f69 100644
 --- a/src/core/prefs.c
 +++ b/src/core/prefs.c
 @@ -33,6 +33,8 @@
@@ -442,22 +485,24 @@ index 60d7a278a..580e1f81e 100644
  #define KEY_LOCATE_POINTER "locate-pointer"
  
 +#define KEY_ROUND_CORNERS_RADIUS "round-corners-radius"
-+#define KEY_CLIP_EDGE_PADDING "clip-edge-padding"
++#define KEY_CLIP_EDGE_PADDING "window-edge-padding"
 +
  /* These are the different schemas we are keeping
   * a GSettings instance for */
  #define SCHEMA_GENERAL         "org.gnome.desktop.wm.preferences"
-@@ -119,6 +124,9 @@ static gboolean show_fallback_app_menu = TRUE;
+@@ -119,6 +124,11 @@ static gboolean show_fallback_app_menu = TRUE;
  static GDesktopVisualBellType visual_bell_type = G_DESKTOP_VISUAL_BELL_FULLSCREEN_FLASH;
  static MetaButtonLayout button_layout;
  
 +static int round_corner_radius = 8;
 +static JsonNode *clip_edge_padding = NULL;
++/* NULL-terminated array */
++static char **black_list = NULL;
 +
  /* NULL-terminated array */
  static char **workspace_names = NULL;
  
-@@ -149,6 +157,7 @@ static gboolean mouse_button_mods_handler (GVariant*, gpointer*, gpointer);
+@@ -149,6 +159,7 @@ static gboolean mouse_button_mods_handler (GVariant*, gpointer*, gpointer);
  static gboolean button_layout_handler (GVariant*, gpointer*, gpointer);
  static gboolean overlay_key_handler (GVariant*, gpointer*, gpointer);
  static gboolean locate_pointer_key_handler (GVariant*, gpointer*, gpointer);
@@ -465,7 +510,7 @@ index 60d7a278a..580e1f81e 100644
  
  static gboolean iso_next_group_handler (GVariant*, gpointer*, gpointer);
  
-@@ -453,6 +462,15 @@ static MetaStringPreference preferences_string[] =
+@@ -453,6 +464,15 @@ static MetaStringPreference preferences_string[] =
        locate_pointer_key_handler,
        NULL,
      },
@@ -481,7 +526,22 @@ index 60d7a278a..580e1f81e 100644
      { { NULL, 0, 0 }, NULL },
    };
  
-@@ -514,6 +532,14 @@ static MetaIntPreference preferences_int[] =
+@@ -474,6 +494,14 @@ static MetaStringArrayPreference preferences_string_array[] =
+       iso_next_group_handler,
+       NULL,
+     },
++    {
++      { "black-list",
++        SCHEMA_MUTTER,
++        META_PREF_BLACK_LIST,
++      },
++      NULL,
++      &black_list,
++    },
+     { { NULL, 0, 0 }, NULL },
+   };
+ 
+@@ -514,6 +542,14 @@ static MetaIntPreference preferences_int[] =
        },
        &cursor_size
      },
@@ -496,7 +556,7 @@ index 60d7a278a..580e1f81e 100644
      { { NULL, 0, 0 }, NULL },
    };
  
-@@ -1587,6 +1613,81 @@ locate_pointer_key_handler (GVariant *value,
+@@ -1587,6 +1623,81 @@ locate_pointer_key_handler (GVariant *value,
    return TRUE;
  }
  
@@ -578,20 +638,23 @@ index 60d7a278a..580e1f81e 100644
  static gboolean
  iso_next_group_handler (GVariant *value,
                          gpointer *result,
-@@ -1758,6 +1859,12 @@ meta_preference_to_string (MetaPreference pref)
+@@ -1758,6 +1869,15 @@ meta_preference_to_string (MetaPreference pref)
  
      case META_PREF_CHECK_ALIVE_TIMEOUT:
        return "CHECK_ALIVE_TIMEOUT";
 +
 +    case META_PREF_CORNER_RADIUS:
-+      return "META_PREF_CORNER_RADIUS";
++      return "CORNER_RADIUS";
 +
 +    case META_PREF_CLIP_EDGE_PADDING:
-+      return "META_PREF_CLIP_EDGE_PADDING";
++      return "CLIP_EDGE_PADDING";
++
++    case META_PREF_BLACK_LIST:
++      return "BLACK_LIST";
      }
  
    return "(unknown)";
-@@ -2226,3 +2333,36 @@ meta_prefs_set_force_fullscreen (gboolean whether)
+@@ -2226,3 +2346,50 @@ meta_prefs_set_force_fullscreen (gboolean whether)
  {
    force_fullscreen = whether;
  }
@@ -622,11 +685,25 @@ index 60d7a278a..580e1f81e 100644
 +  if (json_object_has_member(obj, name))
 +    arr = json_object_get_array_member(obj, name);
 +
++  // array: { left, right, top, bottom }
 +  SET_PADDING(padding, 
-+              json_array_get_int_element(arr, 0),
++              json_array_get_int_element(arr, 0) + 1,
 +              json_array_get_int_element(arr, 1),
-+              json_array_get_int_element(arr, 2),
++              json_array_get_int_element(arr, 2) + 1,
 +              json_array_get_int_element(arr, 3));
++}
++
++gboolean
++meta_prefs_in_black_list(const char *name)
++{
++  g_return_val_if_fail(black_list, FALSE);
++
++  int len = g_strv_length(black_list);
++
++  for (int i = 0; i < len; i++)
++    if (g_strcmp0(name, black_list[i]) == 0)
++      return TRUE;
++  return FALSE;
 +}
 \ No newline at end of file
 diff --git a/src/meson.build b/src/meson.build
@@ -670,20 +747,21 @@ index 284bdf522..4b314fe5d 100644
    version: '0.0.0',
    soversion: 0,
 diff --git a/src/meta/prefs.h b/src/meta/prefs.h
-index e2c8b46cf..5410df437 100644
+index e2c8b46cf..ecbc1b484 100644
 --- a/src/meta/prefs.h
 +++ b/src/meta/prefs.h
-@@ -106,6 +106,9 @@ typedef enum
+@@ -106,6 +106,10 @@ typedef enum
    META_PREF_DRAG_THRESHOLD,
    META_PREF_LOCATE_POINTER,
    META_PREF_CHECK_ALIVE_TIMEOUT,
 +
 +  META_PREF_CORNER_RADIUS,
 +  META_PREF_CLIP_EDGE_PADDING,
++  META_PREF_BLACK_LIST,
  } MetaPreference;
  
  typedef void (* MetaPrefsChangedFunc) (MetaPreference pref,
-@@ -236,6 +239,12 @@ int      meta_prefs_get_draggable_border_width (void);
+@@ -236,6 +240,15 @@ int      meta_prefs_get_draggable_border_width (void);
  META_EXPORT
  int      meta_prefs_get_drag_threshold (void);
  
@@ -692,6 +770,9 @@ index e2c8b46cf..5410df437 100644
 +
 +META_EXPORT
 +void     meta_prefs_get_clip_edge_padding (const char *name, int padding[4]);
++
++META_EXPORT
++gboolean meta_prefs_in_black_list(const char *name);
 +
  /**
   * MetaKeyBindingAction:
@@ -743,28 +824,3 @@ index 73dee1737..03b19ba40 100644
  void meta_ui_frame_get_mask (MetaUIFrame           *frame,
                               cairo_rectangle_int_t *frame_rect,
                               cairo_t               *cr);
-diff --git a/test.xml b/test.xml
-new file mode 100644
-index 000000000..8d003f0cf
---- /dev/null
-+++ b/test.xml
-@@ -0,0 +1,18 @@
-+<?xml version="1.0" encoding="utf-8"?>
-+<schemalist>
-+    <schema id="org.gnome.mutter" path="/org/gnome/mutter/" gettext-domain="mutter">
-+
-+      <key name="round-corners-radius" type="i">
-+        <default>12</default>
-+        <range min="0" max="100"/>
-+        <summary>Round Corners Radius</summary>
-+      </key>
-+  
-+      <key name="window-edge-padding" type="i">
-+        <default>1</default>
-+        <range min="0" max="50"/>
-+        <summary>padding of window will be clipped</summary>
-+      </key>
-+    </schema>
-+  </schemalist>
-+  
-\ No newline at end of file

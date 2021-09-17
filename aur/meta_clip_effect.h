@@ -1,3 +1,7 @@
+/**
+ * for mutter 40.4
+ */
+
 #pragma once
 
 #include <clutter/clutter.h>

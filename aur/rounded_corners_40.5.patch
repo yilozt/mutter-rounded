@@ -1,0 +1,1170 @@
+diff --git a/data/org.gnome.mutter.gschema.xml.in b/data/org.gnome.mutter.gschema.xml.in
+index 23fa9f3ad..eee73e708 100644
+--- a/data/org.gnome.mutter.gschema.xml.in
++++ b/data/org.gnome.mutter.gschema.xml.in
+@@ -2,6 +2,78 @@
+   <schema id="org.gnome.mutter" path="/org/gnome/mutter/"
+           gettext-domain="@GETTEXT_DOMAIN@">
+ 
++    <key name="blur-sigmal" type="i">
++      <default>20</default>
++      <range min="0" max="100"/>
++      <summary>Blur sigmal</summary>
++    </key>
++
++    <key name="blur-brightness" type="i">
++      <default>100</default>
++      <range min="0" max="100"/>
++      <summary>Blur brightness</summary>
++    </key>
++
++    <key name="blur-list" type="as">
++      <default>[]</default>
++      <summary>windows will enable blur effect</summary>
++    </key>
++
++    <key name="blur-window-opacity" type="i">
++      <default>80</default>
++      <range min="0" max="100"/>
++      <summary>Blur brightness</summary>
++    </key>
++
++    <key name="border-width" type="i">
++      <default>0</default>
++      <range min="0" max="100"/>
++      <summary>Window border</summary>
++    </key>
++
++    <key name="round-corners-radius" type="i">
++      <default>12</default>
++      <range min="2" max="100"/>
++      <summary>Round Corners Radius</summary>
++    </key>
++
++    <key name="clip-edge-padding" type="s">
++      <default>"{\"global\": [0, 0, 0, 0], \"apps\": {}}"</default>
++      <summary>padding of window will be clipped</summary>
++      <description>
++        A JSON string, Represents the clipping range of the window edge.
++        The array represents the clipping range of the four sides (left,
++        right, top, bottom) of the window.
++        
++        The key of "apps" object represent the instance part of the window's
++        `WM_CLASS` property, as same as the output of `xprop WM_CLASS|cut -d 
++        \" -f 2`
++
++        This is a example:
++
++          {
++            'global': [1, 2, 3, 4],
++            'apps': {
++              'code': [5, 6, 7, 8],
++              'typora': [9, 10, 11, 12]
++            }
++          }
++
++        For all window, cut the left, right, top and bottom sides by 1, 2
++        , 3 and 4 pixels respectively. But for Visual Studio Code and
++        Typora, we will cut different pixels.        
++      </description>
++    </key>
++
++    <key name="black-list" type="as">
++      <default>["qq.exe", "tim.exe"]</default>
++      <summary>window here will not be rounded</summary>
++      <description>
++        The contents of the list represent the instance part of the window's
++        `WM_CLASS`, as same as the output of `xprop WM_CLASS|cut -d \" -f 2`
++      </description>
++    </key>
++
+     <key name="overlay-key" type="s">
+       <default>'Super_L'</default>
+       <summary>Modifier to use for extended window management operations</summary>
+diff --git a/src/compositor/compositor.c b/src/compositor/compositor.c
+index 1770550d4..ac129babe 100644
+--- a/src/compositor/compositor.c
++++ b/src/compositor/compositor.c
+@@ -610,6 +610,8 @@ meta_compositor_add_window (MetaCompositor    *compositor,
+     window_group = priv->window_group;
+ 
+   clutter_actor_add_child (window_group, CLUTTER_ACTOR (window_actor));
++  meta_window_actor_create_blur_actor(window_actor);
++
+ 
+   /* Initial position in the stack is arbitrary; stacking will be synced
+    * before we first paint.
+@@ -661,6 +663,7 @@ meta_compositor_queue_frame_drawn (MetaCompositor *compositor,
+   MetaWindowActor *window_actor = meta_window_actor_from_window (window);
+ 
+   meta_window_actor_queue_frame_drawn (window_actor, no_delay_frame);
++  meta_window_actor_set_blur_behind(window_actor); 
+ }
+ 
+ void
+@@ -992,6 +995,12 @@ meta_compositor_sync_stack (MetaCompositor  *compositor,
+ 
+   sync_actor_stacking (compositor);
+ 
++  for (GList *l = priv->windows; l; l = l->next)
++    {
++      meta_window_actor_set_blur_behind(l->data);
++      meta_window_actor_update_blur_position_size(l->data);
++    }
++
+   top_window_actor = get_top_visible_window_actor (compositor);
+ 
+   if (priv->top_window_actor == top_window_actor)
+@@ -1022,7 +1031,17 @@ meta_compositor_sync_window_geometry (MetaCompositor *compositor,
+   changes = meta_window_actor_sync_actor_geometry (window_actor, did_placement);
+ 
+   if (changes & META_WINDOW_ACTOR_CHANGE_SIZE)
++  {
++    if (meta_window_actor_should_clip(window_actor))
++      meta_window_actor_update_clipped_bounds(window_actor);
+     meta_plugin_manager_event_size_changed (priv->plugin_mgr, window_actor);
++    meta_window_actor_update_blur_position_size(window_actor);
++  }
++
++  if (changes & META_WINDOW_ACTOR_CHANGE_POSITION)
++    meta_window_actor_update_blur_position_size(window_actor);
++
++  meta_window_actor_set_blur_behind(window_actor);
+ }
+ 
+ static void
+@@ -1188,6 +1207,44 @@ meta_compositor_get_property (GObject    *object,
+     }
+ }
+ 
++static void
++prefs_changed_cb(MetaPreference pref,
++                 gpointer       user_data)
++{
++  MetaCompositor *compositor = user_data;
++  MetaCompositorPrivate *priv =
++    meta_compositor_get_instance_private (compositor);
++  GList *l;
++
++  for (l = priv->windows; l; l = l->next)
++  {
++    switch (pref)
++    {
++    case META_PREF_CORNER_RADIUS:
++    case META_PREF_CLIP_EDGE_PADDING:
++    case META_PREF_BORDER_WIDTH:
++      if (pref == META_PREF_CLIP_EDGE_PADDING)
++        meta_window_actor_update_clip_padding (l->data);
++      
++      meta_window_actor_update_clipped_bounds (l->data);
++      meta_window_actor_update_glsl (l->data);
++      clutter_actor_queue_redraw (CLUTTER_ACTOR (l->data));
++      break;
++    case META_PREF_BLUR_SIGMAL:
++      meta_window_actor_update_blur_sigmal (l->data);
++      break;
++    case META_PREF_BLUR_BRIGHTNESS:
++      meta_window_actor_update_blur_brightness (l->data);
++      break;
++    case META_PREF_BLUR_WINDOW_OPACITY:
++      meta_window_actor_update_blur_window_opacity (l->data);
++      break;
++    default:
++      break;
++    }
++  }
++}
++
+ static void
+ meta_compositor_init (MetaCompositor *compositor)
+ {
+@@ -1218,6 +1275,8 @@ meta_compositor_constructed (GObject *object)
+ 
+   priv->laters = meta_laters_new (compositor);
+ 
++  meta_prefs_add_listener(prefs_changed_cb, compositor);
++
+   G_OBJECT_CLASS (meta_compositor_parent_class)->constructed (object);
+ }
+ 
+@@ -1243,6 +1302,8 @@ meta_compositor_dispose (GObject *object)
+   g_clear_pointer (&priv->feedback_group, clutter_actor_destroy);
+   g_clear_pointer (&priv->windows, g_list_free);
+ 
++  meta_prefs_remove_listener(prefs_changed_cb, compositor);
++
+   G_OBJECT_CLASS (meta_compositor_parent_class)->dispose (object);
+ }
+ 
+diff --git a/src/compositor/meta-window-actor-private.h b/src/compositor/meta-window-actor-private.h
+index 64741e416..a0dc4f69d 100644
+--- a/src/compositor/meta-window-actor-private.h
++++ b/src/compositor/meta-window-actor-private.h
+@@ -99,4 +99,16 @@ void meta_window_actor_update_regions (MetaWindowActor *self);
+ 
+ gboolean meta_window_actor_can_freeze_commits (MetaWindowActor *self);
+ 
++gboolean meta_window_actor_should_clip (MetaWindowActor *self);
++void meta_window_actor_update_clipped_bounds (MetaWindowActor *window_actor);
++void meta_window_actor_update_glsl (MetaWindowActor *self);
++void meta_window_actor_get_corner_rect (MetaWindowActor *self, MetaRectangle *rect);
++void meta_window_actor_update_clip_padding (MetaWindowActor *self);
++void meta_window_actor_create_blur_actor (MetaWindowActor *self);
++void meta_window_actor_set_blur_behind (MetaWindowActor *self);
++void meta_window_actor_update_blur_position_size (MetaWindowActor *self);
++void meta_window_actor_remove_blur (MetaWindowActor *self);
++void meta_window_actor_update_blur_sigmal (MetaWindowActor *self);
++void meta_window_actor_update_blur_brightness (MetaWindowActor *self);
++void meta_window_actor_update_blur_window_opacity (MetaWindowActor *self);
+ #endif /* META_WINDOW_ACTOR_PRIVATE_H */
+diff --git a/src/compositor/meta-window-actor-x11.c b/src/compositor/meta-window-actor-x11.c
+index e4769e087..816d482b0 100644
+--- a/src/compositor/meta-window-actor-x11.c
++++ b/src/compositor/meta-window-actor-x11.c
+@@ -142,7 +142,7 @@ surface_repaint_scheduled (MetaSurfaceActor *actor,
+                            gpointer          user_data)
+ {
+   MetaWindowActorX11 *actor_x11 = META_WINDOW_ACTOR_X11 (user_data);
+-
++  meta_window_actor_set_blur_behind(META_WINDOW_ACTOR(actor_x11));
+   actor_x11->repaint_scheduled = TRUE;
+ }
+ 
+@@ -400,6 +400,8 @@ surface_size_changed (MetaSurfaceActor *actor,
+   MetaWindowActorX11 *actor_x11 = META_WINDOW_ACTOR_X11 (user_data);
+ 
+   meta_window_actor_x11_update_shape (actor_x11);
++
++  meta_window_actor_update_glsl(META_WINDOW_ACTOR(actor_x11));
+ }
+ 
+ static void
+@@ -538,6 +540,9 @@ has_shadow (MetaWindowActorX11 *actor_x11)
+   if (meta_window_get_frame (window))
+     return TRUE;
+ 
++  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++    return TRUE;
++
+   /*
+    * Do not add shadows to non-opaque (ARGB32) windows, as we can't easily
+    * generate shadows for them.
+@@ -694,6 +699,8 @@ clip_shadow_under_window (MetaWindowActorX11 *actor_x11)
+ 
+   if (window->frame)
+     return TRUE;
++  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++    return TRUE;
+ 
+   return meta_window_actor_is_opaque (META_WINDOW_ACTOR (actor_x11));
+ }
+@@ -1036,6 +1043,11 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
+     {
+       region = cairo_region_reference (window->shape_region);
+     }
++  else if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)) && !window->frame)
++    {
++      meta_window_actor_get_corner_rect(META_WINDOW_ACTOR(actor_x11), &client_area);
++      region = cairo_region_create_rectangle(&client_area);  
++    }
+   else
+     {
+       /* If we don't have a shape on the server, that means that
+@@ -1043,7 +1055,7 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
+        * entire window. */
+       region = cairo_region_create_rectangle (&client_area);
+     }
+-
++  
+   if (window->shape_region || window->frame)
+     build_and_scan_frame_mask (actor_x11, region);
+ 
+@@ -1151,6 +1163,23 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
+   cairo_region_destroy (opaque_region);
+ }
+ 
++static cairo_region_t *
++meta_window_get_clipped_frame_bounds(MetaWindow *window)
++{
++  g_return_val_if_fail(window, NULL);
++
++  MetaWindowActor *actor = meta_window_actor_from_window(window);
++  if (actor && !window->frame_bounds)
++  {
++    MetaRectangle rect;
++    meta_window_actor_get_corner_rect(actor, &rect);
++    window->frame_bounds = 
++      meta_ui_frame_get_bounds_clipped(&rect,
++                                       meta_prefs_get_round_corner_radius());
++  }
++  return window->frame_bounds;
++}
++
+ static void
+ update_frame_bounds (MetaWindowActorX11 *actor_x11)
+ {
+@@ -1158,8 +1187,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
+     meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_x11));
+ 
+   g_clear_pointer (&actor_x11->frame_bounds, cairo_region_destroy);
+-  actor_x11->frame_bounds =
+-    cairo_region_copy (meta_window_get_frame_bounds (window));
++  
++  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++    actor_x11->frame_bounds =
++      cairo_region_copy(meta_window_get_clipped_frame_bounds(window));
++  else
++    actor_x11->frame_bounds =
++      cairo_region_copy (meta_window_get_frame_bounds (window));
+ }
+ 
+ static void
+@@ -1304,7 +1338,10 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
+       cairo_region_t *clip = actor_x11->shadow_clip;
+       CoglFramebuffer *framebuffer;
+ 
+-      get_shape_bounds (actor_x11, &shape_bounds);
++      if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_x11)))
++        meta_window_actor_get_corner_rect(META_WINDOW_ACTOR(actor_x11), &shape_bounds);
++      else
++        get_shape_bounds (actor_x11, &shape_bounds);
+       get_shadow_params (actor_x11, appears_focused, &params);
+ 
+       /* The frame bounds are already subtracted from actor_x11->shadow_clip
+diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
+index d4fc9a43a..4339cf63d 100644
+--- a/src/compositor/meta-window-actor.c
++++ b/src/compositor/meta-window-actor.c
+@@ -41,6 +41,9 @@
+ #include "wayland/meta-wayland-surface.h"
+ #endif
+ 
++#include "meta_clip_effect.h"
++#include "shell-blur-effect.h"
++
+ typedef enum
+ {
+   INITIALLY_FROZEN,
+@@ -55,6 +58,13 @@ typedef struct _MetaWindowActorPrivate
+ 
+   MetaSurfaceActor *surface;
+ 
++  MetaClipEffect *round_clip_effect;
++  gboolean effect_setuped;
++  gboolean should_clip;
++  int clip_padding[4];
++  ClutterActor *blur_actor;
++  MetaShellBlurEffect *blur_effect;
++
+   int geometry_scale;
+ 
+   /*
+@@ -119,6 +129,221 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE (MetaWindowActor, meta_window_actor, CLUTTER_TY
+                                   G_IMPLEMENT_INTERFACE (META_TYPE_CULLABLE, cullable_iface_init)
+                                   G_IMPLEMENT_INTERFACE (META_TYPE_SCREEN_CAST_WINDOW, screen_cast_window_iface_init));
+ 
++static gboolean _meta_window_actor_should_clip(MetaWindowActor *self);
++
++static MetaClipEffect*
++create_clip_effect(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  if ((priv->should_clip = _meta_window_actor_should_clip(self)))
++    return meta_clip_effect_new();
++  else
++    return NULL;
++}
++
++void
++meta_window_actor_update_blur_position_size(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private (self);
++
++  if (!priv->blur_actor)
++    return;
++
++  MetaRectangle buf_rect;
++  MetaRectangle frame_rect;
++  meta_window_get_frame_rect (priv->window, &frame_rect);
++  meta_window_get_buffer_rect (priv->window, &buf_rect);
++
++  clutter_actor_set_position (priv->blur_actor,
++                              frame_rect.x + priv->clip_padding[0] - 2,
++                              frame_rect.y + priv->clip_padding[2] - 2);
++  clutter_actor_set_size (priv->blur_actor,
++                          frame_rect.width - priv->clip_padding[0] - priv->clip_padding[1]  + 3,
++                          frame_rect.height - priv->clip_padding[2] - priv->clip_padding[3] + 3);
++}
++
++void
++meta_window_actor_set_blur_behind (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private (self);
++
++  if (!priv->blur_actor)
++    return;
++
++  ClutterActor *parent = clutter_actor_get_parent (CLUTTER_ACTOR(self));
++  clutter_actor_set_child_below_sibling (parent, priv->blur_actor, CLUTTER_ACTOR(self));  
++}
++
++static gboolean
++meta_window_is_normal (MetaWindowActor *actor)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (actor);
++  MetaWindowType type = meta_window_get_window_type (priv->window);
++
++switch (type)
++  {
++    case META_WINDOW_NORMAL:
++    case META_WINDOW_DIALOG:
++    case META_WINDOW_MODAL_DIALOG:
++    case META_WINDOW_SPLASHSCREEN:
++      return TRUE;
++    default:
++      return FALSE;
++  }
++}
++
++void
++meta_window_actor_create_blur_actor (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private (self);
++  
++  if (!meta_window_is_normal (self))
++    return;
++  if (!meta_prefs_in_blur_list (priv->window->res_name))
++    return;
++
++  priv->blur_actor = clutter_actor_new ();
++  priv->blur_effect = meta_shell_blur_effect_new ();
++
++  meta_shell_blur_effect_set_brightness (priv->blur_effect,
++                                    meta_prefs_get_blur_brightness());
++  meta_shell_blur_effect_set_sigma (priv->blur_effect,
++                               meta_prefs_get_blur_sigmal());
++  meta_shell_blur_effect_set_mode (priv->blur_effect, SHELL_BLUR_MODE_BACKGROUND);
++  clutter_actor_add_effect_with_name (priv->blur_actor,
++                                      "ShellBlurEffect",
++                                      CLUTTER_EFFECT(priv->blur_effect));
++
++  ClutterActor *parent = clutter_actor_get_parent (CLUTTER_ACTOR(self));
++  clutter_actor_insert_child_below (parent, priv->blur_actor, CLUTTER_ACTOR(self));
++  meta_window_set_opacity(priv->window, meta_prefs_get_blur_window_opacity());
++}
++
++static void
++check_meta_window_surface_actor(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  MetaSurfaceActor *surface = meta_window_actor_get_surface(self);
++
++  if (!priv->effect_setuped && surface && priv->round_clip_effect)
++  {
++    clutter_actor_add_effect_with_name(CLUTTER_ACTOR(surface),
++                                       "Rounded Corners Effect(Surface)",
++                                       CLUTTER_EFFECT(priv->round_clip_effect));
++    priv->effect_setuped = true;
++  }
++}
++
++void
++meta_window_actor_update_glsl(MetaWindowActor *self)
++{
++  MetaRectangle frame_rect;
++  MetaRectangle buf_rect;
++  MetaWindow *window = meta_window_actor_get_meta_window(self);
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++
++  if(!priv->round_clip_effect)
++    return;
++
++  check_meta_window_surface_actor(self);
++
++  if (!meta_window_actor_should_clip(self))
++  {
++    meta_clip_effect_skip(priv->round_clip_effect);
++    return;
++  }
++
++  meta_window_get_frame_rect(window, &frame_rect);
++  meta_window_get_buffer_rect(window, &buf_rect);
++
++  cairo_rectangle_int_t bounds;
++  bounds.x = frame_rect.x - buf_rect.x;
++  bounds.y = frame_rect.y - buf_rect.y;
++  bounds.width = frame_rect.width;
++  bounds.height = frame_rect.height;
++
++  if (bounds.width <= 0 || bounds.height <= 0)
++    return;
++
++  if (priv->clip_padding[0] == -1 && window->res_name)
++    meta_prefs_get_clip_edge_padding(window->res_name, priv->clip_padding);
++
++  meta_clip_effect_set_bounds(priv->round_clip_effect, &bounds, priv->clip_padding);
++  // meta_window_actor_update_blur_position_size(self);
++}
++
++static gboolean
++_meta_window_actor_should_clip(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
++  MetaWindow *window = priv->window;
++
++  if (meta_window_get_client_type(window) == META_WINDOW_CLIENT_TYPE_WAYLAND ||
++      meta_prefs_in_black_list(window->res_name))
++    {
++      return FALSE;
++    }
++
++  return meta_window_is_normal(self);
++}
++
++gboolean
++meta_window_actor_should_clip(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
++
++  return priv->should_clip && 
++        !(meta_window_get_maximized(priv->window)||
++          meta_window_is_fullscreen(priv->window)); 
++}
++
++void
++meta_window_actor_get_corner_rect(MetaWindowActor *self,
++                                  MetaRectangle *rect)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  g_return_if_fail(priv->round_clip_effect);
++  meta_clip_effect_get_bounds(priv->round_clip_effect, rect);
++}
++
++void meta_window_actor_update_clip_padding(MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  if(priv->round_clip_effect)
++    meta_prefs_get_clip_edge_padding(priv->window->res_name,
++                                     priv->clip_padding);
++}
++
++void
++meta_window_actor_update_blur_sigmal (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  if (priv->blur_actor)
++    meta_shell_blur_effect_set_sigma (priv->blur_effect,
++                                 meta_prefs_get_blur_sigmal());
++}
++
++void
++meta_window_actor_update_blur_brightness (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  if (priv->blur_actor)
++    meta_shell_blur_effect_set_brightness (priv->blur_effect,
++                                 meta_prefs_get_blur_brightness());
++}
++
++void
++meta_window_actor_update_blur_window_opacity (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private(self);
++  if (priv->blur_actor)
++    meta_window_set_opacity (priv->window,
++                             meta_prefs_get_blur_window_opacity());
++}
++
+ static void
+ meta_window_actor_class_init (MetaWindowActorClass *klass)
+ {
+@@ -216,6 +441,11 @@ meta_window_actor_init (MetaWindowActor *self)
+     meta_window_actor_get_instance_private (self);
+ 
+   priv->geometry_scale = 1;
++  priv->effect_setuped = FALSE;
++  priv->clip_padding[0] = -1;
++
++  priv->blur_actor = NULL;
++  priv->blur_effect = NULL;
+ }
+ 
+ static void
+@@ -399,6 +629,20 @@ init_surface_actor (MetaWindowActor *self)
+     meta_window_actor_assign_surface_actor (self, surface_actor);
+ }
+ 
++static void
++on_visible_changed (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
++  
++  if (!priv->blur_actor)
++    return;
++
++  if (priv->visible)
++    clutter_actor_show(priv->blur_actor);
++  else
++    clutter_actor_hide(priv->blur_actor);
++}
++
+ static void
+ meta_window_actor_constructed (GObject *object)
+ {
+@@ -424,6 +668,8 @@ meta_window_actor_constructed (GObject *object)
+     priv->first_frame_state = DRAWING_FIRST_FRAME;
+ 
+   meta_window_actor_sync_actor_geometry (self, priv->window->placed);
++
++  g_signal_connect (object, "notify::visible", G_CALLBACK (on_visible_changed), object);
+ }
+ 
+ static void
+@@ -470,6 +716,7 @@ meta_window_actor_set_property (GObject      *object,
+     {
+     case PROP_META_WINDOW:
+       priv->window = g_value_dup_object (value);
++      priv->round_clip_effect = create_clip_effect(self);
+       g_signal_connect_object (priv->window, "notify::appears-focused",
+                                G_CALLBACK (window_appears_focused_notify), self, 0);
+       break;
+@@ -662,6 +909,20 @@ start_simple_effect (MetaWindowActor  *self,
+   return TRUE;
+ }
+ 
++void
++meta_window_actor_remove_blur (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private (self);
++
++  if (!priv->blur_actor)
++    return;
++
++  ClutterActor *parent = clutter_actor_get_parent (CLUTTER_ACTOR (self));
++  clutter_actor_remove_effect (priv->blur_actor, CLUTTER_EFFECT (priv->blur_effect));
++  clutter_actor_remove_child (parent, priv->blur_actor);
++}
++
+ static void
+ meta_window_actor_after_effects (MetaWindowActor *self)
+ {
+@@ -675,7 +936,13 @@ meta_window_actor_after_effects (MetaWindowActor *self)
+ 
+   if (priv->needs_destroy)
+     {
+-      clutter_actor_destroy (CLUTTER_ACTOR (self));
++      if (priv->round_clip_effect)
++        {
++          clutter_actor_remove_effect (CLUTTER_ACTOR(self),
++                                       CLUTTER_EFFECT(priv->round_clip_effect));
++          meta_window_actor_remove_blur(self);
++          clutter_actor_destroy (CLUTTER_ACTOR (self));
++        }
+     }
+   else
+     {
+@@ -803,6 +1070,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
+     clutter_actor_destroy (CLUTTER_ACTOR (self));
+ }
+ 
++void
++meta_window_actor_update_clipped_bounds(MetaWindowActor *window_actor)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private(window_actor);
++  MetaWindow *window = priv->window;
++
++  if (window && window->frame_bounds) {
++    cairo_region_destroy(window->frame_bounds);
++    window->frame_bounds = NULL;
++  }
++}
++
+ MetaWindowActorChanges
+ meta_window_actor_sync_actor_geometry (MetaWindowActor *self,
+                                        gboolean         did_placement)
+diff --git a/src/core/prefs.c b/src/core/prefs.c
+index 60d7a278a..6c27d4556 100644
+--- a/src/core/prefs.c
++++ b/src/core/prefs.c
+@@ -33,6 +33,8 @@
+ #include <string.h>
+ #include <stdlib.h>
+ 
++#include <json-glib/json-glib.h>
++
+ #include "compositor/meta-plugin-manager.h"
+ #include "core/keybindings-private.h"
+ #include "core/meta-accel-parse.h"
+@@ -119,6 +121,16 @@ static gboolean show_fallback_app_menu = TRUE;
+ static GDesktopVisualBellType visual_bell_type = G_DESKTOP_VISUAL_BELL_FULLSCREEN_FLASH;
+ static MetaButtonLayout button_layout;
+ 
++static int round_corner_radius = 8;
++static int border_width = 0;
++static int blur_sigmal = 20;
++static int blur_window_opacity = 80;
++static int blur_brightness = 100;
++static JsonNode *clip_edge_padding = NULL;
++/* NULL-terminated array */
++static char **black_list = NULL;
++static char **blur_list = NULL;
++
+ /* NULL-terminated array */
+ static char **workspace_names = NULL;
+ 
+@@ -149,6 +161,7 @@ static gboolean mouse_button_mods_handler (GVariant*, gpointer*, gpointer);
+ static gboolean button_layout_handler (GVariant*, gpointer*, gpointer);
+ static gboolean overlay_key_handler (GVariant*, gpointer*, gpointer);
+ static gboolean locate_pointer_key_handler (GVariant*, gpointer*, gpointer);
++static gboolean clip_edge_padding_handler (GVariant*, gpointer*, gpointer);
+ 
+ static gboolean iso_next_group_handler (GVariant*, gpointer*, gpointer);
+ 
+@@ -453,6 +466,15 @@ static MetaStringPreference preferences_string[] =
+       locate_pointer_key_handler,
+       NULL,
+     },
++    {
++      {
++        "clip-edge-padding",
++        SCHEMA_MUTTER,
++        META_PREF_CLIP_EDGE_PADDING,
++      },
++      clip_edge_padding_handler,
++      NULL,
++    },
+     { { NULL, 0, 0 }, NULL },
+   };
+ 
+@@ -474,6 +496,22 @@ static MetaStringArrayPreference preferences_string_array[] =
+       iso_next_group_handler,
+       NULL,
+     },
++    {
++      { "black-list",
++        SCHEMA_MUTTER,
++        META_PREF_BLACK_LIST,
++      },
++      NULL,
++      &black_list,
++    },
++    {
++      { "blur-list",
++        SCHEMA_MUTTER,
++        META_PREF_BLUR_LIST,
++      },
++      NULL,
++      &blur_list,
++    },
+     { { NULL, 0, 0 }, NULL },
+   };
+ 
+@@ -514,6 +552,46 @@ static MetaIntPreference preferences_int[] =
+       },
+       &cursor_size
+     },
++    {
++      {
++        "round-corners-radius",
++        SCHEMA_MUTTER,
++        META_PREF_CORNER_RADIUS,
++      },
++      &round_corner_radius,
++    },
++    {
++      {
++        "border-width",
++        SCHEMA_MUTTER,
++        META_PREF_BORDER_WIDTH,
++      },
++      &border_width,
++    },
++    {
++      {
++        "blur-sigmal",
++        SCHEMA_MUTTER,
++        META_PREF_BLUR_SIGMAL,
++      },
++      &blur_sigmal,
++    },
++    {
++      {
++        "blur-brightness",
++        SCHEMA_MUTTER,
++        META_PREF_BLUR_BRIGHTNESS,
++      },
++      &blur_brightness,
++    },
++    {
++      {
++        "blur-window-opacity",
++        SCHEMA_MUTTER,
++        META_PREF_BLUR_WINDOW_OPACITY,
++      },
++      &blur_window_opacity,
++    },
+     { { NULL, 0, 0 }, NULL },
+   };
+ 
+@@ -1587,6 +1665,81 @@ locate_pointer_key_handler (GVariant *value,
+   return TRUE;
+ }
+ 
++static gboolean
++clip_edge_padding_handler (GVariant *value,
++                           gpointer *result,
++                           gpointer  data)
++{
++  /* json string looks like this:
++   * 
++   * {
++   *    // array represent the clip padding of window: [left, right, top, bottom]
++   *    "global": [1, 1, 1, 1],
++   *    // special app settings,
++   *    "apps": {
++   *       // second part in `WM_CLASS` property of a window
++   *       "Typora": [0, 0, 0, 0],
++   *       ...
++   *    }
++   * } 
++   */
++
++  JsonNode *json;
++  JsonObject *obj;
++  JsonArray *arr;
++  JsonNode *element;
++  JsonObject *apps_obj;
++  GList *app_names;
++
++  const char *string_value;
++  GError *error = NULL;
++
++  *result = NULL;
++  string_value = g_variant_get_string(value, NULL);
++  json = json_from_string(string_value, &error);
++
++  if (error)
++  {
++    meta_topic(META_DEBUG_PREFS, "Failed to parse value for clip-edge-padding: %s", error->message);
++    g_error_free(error);
++    return FALSE;
++  }
++
++  if (!JSON_NODE_HOLDS_OBJECT(json))
++    goto failed;
++
++  obj = json_node_get_object(json);
++  arr = json_object_get_array_member(obj, "global");
++  if (!arr || json_array_get_length(arr) != 4)
++    goto failed;
++  
++  if (!(element = json_object_get_member(obj, "apps")))
++    goto failed;
++  if (!JSON_NODE_HOLDS_OBJECT(element))
++    goto failed;
++  apps_obj = json_node_get_object(element);
++
++  app_names = json_object_get_members(apps_obj);
++  for (GList *l = app_names; l != NULL; l = l->next)
++  {
++    arr = json_object_get_array_member(apps_obj, l->data);
++    if (!arr || json_array_get_length(arr) != 4)
++      goto failed;
++  }
++
++  if (clip_edge_padding != NULL)
++    json_node_unref(clip_edge_padding);
++  clip_edge_padding = json;
++  queue_changed(META_PREF_CLIP_EDGE_PADDING);
++
++  return TRUE;
++
++failed:
++  meta_topic(META_DEBUG_PREFS, "Failed to parse value for clip-edge-padding");
++  json_node_unref(json);
++  return FALSE;
++}
++
+ static gboolean
+ iso_next_group_handler (GVariant *value,
+                         gpointer *result,
+@@ -1758,6 +1911,30 @@ meta_preference_to_string (MetaPreference pref)
+ 
+     case META_PREF_CHECK_ALIVE_TIMEOUT:
+       return "CHECK_ALIVE_TIMEOUT";
++
++    case META_PREF_CORNER_RADIUS:
++      return "CORNER_RADIUS";
++
++    case META_PREF_CLIP_EDGE_PADDING:
++      return "CLIP_EDGE_PADDING";
++
++    case META_PREF_BLACK_LIST:
++      return "BLACK_LIST";
++
++    case META_PREF_BORDER_WIDTH:
++      return "BORDER_WIDTH";
++    
++    case META_PREF_BLUR_SIGMAL:
++      return "BLUR_SIGMAL";
++
++    case META_PREF_BLUR_BRIGHTNESS:
++      return "BLUR_BRIGHTNESS";
++
++    case META_PREF_BLUR_LIST:
++      return "BLUR_LIST";
++
++    case META_PREF_BLUR_WINDOW_OPACITY:
++      return "BLUR_WINDOW_OPACITY";
+     }
+ 
+   return "(unknown)";
+@@ -2226,3 +2403,88 @@ meta_prefs_set_force_fullscreen (gboolean whether)
+ {
+   force_fullscreen = whether;
+ }
++
++int
++meta_prefs_get_round_corner_radius (void)
++{
++  return round_corner_radius;
++}
++
++#define SET_PADDING(arr, v0, v1, v2, v3) \
++  { (arr)[0] = (v0); (arr)[1] = (v1); (arr)[2] = (v2); (arr)[3] = (v3); }
++
++void
++meta_prefs_get_clip_edge_padding (const char *name, int padding[4])
++{
++  JsonObject *obj;
++  JsonArray *arr;
++
++  if (!clip_edge_padding || !name) {
++    SET_PADDING(padding, 0, 0, 0, 0);
++    return;
++  }
++
++  obj = json_node_get_object(clip_edge_padding);
++  arr = json_object_get_array_member(obj, "global");
++  obj = json_object_get_object_member(obj, "apps");
++
++  if (json_object_has_member(obj, name))
++    arr = json_object_get_array_member(obj, name);
++
++  // array: { left, right, top, bottom }
++  SET_PADDING(padding, 
++              json_array_get_int_element(arr, 0) + 1,
++              json_array_get_int_element(arr, 1),
++              json_array_get_int_element(arr, 2) + 1,
++              json_array_get_int_element(arr, 3));
++}
++
++gboolean
++meta_prefs_in_black_list(const char *name)
++{
++  g_return_val_if_fail(black_list, FALSE);
++
++  int len = g_strv_length(black_list);
++
++  for (int i = 0; i < len; i++)
++    if (g_strcmp0(name, black_list[i]) == 0)
++      return TRUE;
++  return FALSE;
++}
++
++int
++meta_prefs_get_border_width(void)
++{
++  return border_width;
++}
++
++int
++meta_prefs_get_blur_sigmal(void)
++{
++  return blur_sigmal;
++}
++
++double
++meta_prefs_get_blur_brightness(void)
++{
++  return (double) blur_brightness * 0.01;
++}
++
++int
++meta_prefs_get_blur_window_opacity(void)
++{
++  return blur_window_opacity * 255 * 0.01;
++}
++
++gboolean
++meta_prefs_in_blur_list(const char *name)
++{
++  g_return_val_if_fail(blur_list, FALSE);
++
++  int len = g_strv_length(blur_list);
++
++  for (int i = 0; i < len; i++)
++    if (g_strcmp0(name, blur_list[i]) == 0)
++      return TRUE;
++  return FALSE;
++}
+\ No newline at end of file
+diff --git a/src/meson.build b/src/meson.build
+index 284bdf522..a0c5e2d4b 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -163,6 +163,18 @@ if get_option('verbose')
+   ]
+ endif
+ 
++libshell_enums = gnome.mkenums_simple('shell-enum-types',
++  sources: [
++    'shell-blur-effect.h',
++  ]
++)
++
++libshell_src = [
++  libshell_enums,
++  'shell-blur-effect.h',
++  'shell-blur-effect.c',
++]
++
+ mutter_sources = [
+   'backends/edid.h',
+   'backends/edid-parse.c',
+@@ -444,6 +456,8 @@ mutter_sources = [
+   'x11/window-x11-private.h',
+   'x11/xprops.c',
+   'x11/xprops.h',
++  'meta_clip_effect.c',
++  'meta_clip_effect.h',
+ ]
+ 
+ if have_egl
+@@ -966,7 +980,8 @@ subdir('meta')
+ mutter_built_sources += mutter_enum_types
+ 
+ libmutter = shared_library(libmutter_name,
+-  mutter_sources,
++  # mutter_sources,
++  mutter_sources + libshell_src,
+   mutter_built_sources,
+   version: '0.0.0',
+   soversion: 0,
+diff --git a/src/meta/prefs.h b/src/meta/prefs.h
+index e2c8b46cf..f1ee72576 100644
+--- a/src/meta/prefs.h
++++ b/src/meta/prefs.h
+@@ -106,6 +106,15 @@ typedef enum
+   META_PREF_DRAG_THRESHOLD,
+   META_PREF_LOCATE_POINTER,
+   META_PREF_CHECK_ALIVE_TIMEOUT,
++
++  META_PREF_CORNER_RADIUS,
++  META_PREF_CLIP_EDGE_PADDING,
++  META_PREF_BLACK_LIST,
++  META_PREF_BORDER_WIDTH,
++  META_PREF_BLUR_SIGMAL,
++  META_PREF_BLUR_BRIGHTNESS,
++  META_PREF_BLUR_LIST,
++  META_PREF_BLUR_WINDOW_OPACITY,
+ } MetaPreference;
+ 
+ typedef void (* MetaPrefsChangedFunc) (MetaPreference pref,
+@@ -236,6 +245,30 @@ int      meta_prefs_get_draggable_border_width (void);
+ META_EXPORT
+ int      meta_prefs_get_drag_threshold (void);
+ 
++META_EXPORT
++int      meta_prefs_get_round_corner_radius (void);
++
++META_EXPORT
++void     meta_prefs_get_clip_edge_padding (const char *name, int padding[4]);
++
++META_EXPORT
++gboolean meta_prefs_in_black_list(const char *name);
++
++META_EXPORT
++int      meta_prefs_get_border_width(void);
++
++META_EXPORT
++int      meta_prefs_get_blur_sigmal(void);
++
++META_EXPORT
++double   meta_prefs_get_blur_brightness(void);
++
++META_EXPORT
++int      meta_prefs_get_blur_window_opacity(void);
++
++META_EXPORT
++gboolean meta_prefs_in_blur_list(const char *name);
++
+ /**
+  * MetaKeyBindingAction:
+  * @META_KEYBINDING_ACTION_NONE: FILLME
+diff --git a/src/ui/frames.c b/src/ui/frames.c
+index 48b2a361c..8be6a8f8b 100644
+--- a/src/ui/frames.c
++++ b/src/ui/frames.c
+@@ -711,6 +711,27 @@ meta_ui_frame_get_bounds (MetaUIFrame *frame)
+   return get_visible_region (frame, &fgeom);
+ }
+ 
++cairo_region_t * 
++meta_ui_frame_get_bounds_clipped (const MetaRectangle *bounds,
++                                  float radius)
++{
++  MetaFrameGeometry fgeom;
++ 
++  fgeom.borders.invisible.left = bounds->x;
++  fgeom.borders.invisible.top =  bounds->y;
++  fgeom.borders.invisible.bottom = 0;
++  fgeom.borders.invisible.right =  0;
++  fgeom.width  = bounds->width + bounds->x;
++  fgeom.height = bounds->height + bounds->y;
++
++  fgeom.top_left_corner_rounded_radius = radius;
++  fgeom.top_right_corner_rounded_radius = radius;
++  fgeom.bottom_left_corner_rounded_radius = radius;
++  fgeom.bottom_right_corner_rounded_radius = radius;
++  
++  return get_visible_region (NULL, &fgeom);
++}
++
+ void
+ meta_ui_frame_move_resize (MetaUIFrame *frame,
+                            int x, int y, int width, int height)
+diff --git a/src/ui/frames.h b/src/ui/frames.h
+index 73dee1737..03b19ba40 100644
+--- a/src/ui/frames.h
++++ b/src/ui/frames.h
+@@ -135,6 +135,10 @@ void meta_ui_frame_get_borders (MetaUIFrame      *frame,
+ 
+ cairo_region_t * meta_ui_frame_get_bounds (MetaUIFrame *frame);
+ 
++cairo_region_t * 
++meta_ui_frame_get_bounds_clipped (const MetaRectangle *bounds,
++                                  float radius);
++
+ void meta_ui_frame_get_mask (MetaUIFrame           *frame,
+                              cairo_rectangle_int_t *frame_rect,
+                              cairo_t               *cr);
+diff --git a/src/wayland/meta-window-wayland.c b/src/wayland/meta-window-wayland.c
+index 12e9567d9..7138330bc 100644
+--- a/src/wayland/meta-window-wayland.c
++++ b/src/wayland/meta-window-wayland.c
+@@ -1002,6 +1002,9 @@ meta_window_wayland_finish_move_resize (MetaWindow              *window,
+     gravity = META_GRAVITY_STATIC;
+   meta_window_move_resize_internal (window, flags, gravity, rect);
+ 
++  if (flags & META_MOVE_RESIZE_RESIZE_ACTION)
++    meta_window_actor_update_glsl(meta_window_actor_from_window(window));
++
+   g_clear_pointer (&acked_configuration, meta_wayland_window_configuration_free);
+ }
+ 

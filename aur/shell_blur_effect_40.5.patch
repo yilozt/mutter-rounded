@@ -1,0 +1,444 @@
+diff -Narup a/src/shell-blur-effect.c b/src/shell-blur-effect.c
+--- a/src/shell-blur-effect.c	2021-10-07 20:18:19.538167665 +0800
++++ b/src/shell-blur-effect.c	2021-10-07 20:18:19.539167720 +0800
+@@ -22,6 +22,9 @@
+ 
+ #include "shell-enum-types.h"
+ 
++#include "meta/prefs.h"
++#include "shader.h"
++
+ /**
+  * SECTION:shell-blur-effect
+  * @short_description: Blur effect for actors
+@@ -40,12 +43,6 @@
+  * of using this blur mode.
+  */
+ 
+-static const gchar *brightness_glsl_declarations =
+-"uniform float brightness;                                                 \n";
+-
+-static const gchar *brightness_glsl =
+-"  cogl_color_out.rgb *= brightness;                                       \n";
+-
+ #define MIN_DOWNSCALE_SIZE 256.f
+ #define MAX_SIGMA 6.f
+ 
+@@ -62,7 +59,7 @@ typedef struct
+   CoglTexture *texture;
+ } FramebufferData;
+ 
+-struct _ShellBlurEffect
++struct _MetaShellBlurEffect
+ {
+   ClutterEffect parent_instance;
+ 
+@@ -78,6 +75,11 @@ struct _ShellBlurEffect
+   FramebufferData background_fb;
+   FramebufferData brightness_fb;
+   int brightness_uniform;
++  int bounds_uniform;
++  int corner_centers_1_uniform;
++  int corner_centers_2_uniform;
++  int pixel_step_uniform;
++  int skip_uniform;
+ 
+   ShellBlurMode mode;
+   float downscale_factor;
+@@ -85,7 +87,7 @@ struct _ShellBlurEffect
+   int sigma;
+ };
+ 
+-G_DEFINE_TYPE (ShellBlurEffect, shell_blur_effect, CLUTTER_TYPE_EFFECT)
++G_DEFINE_TYPE (MetaShellBlurEffect, meta_shell_blur_effect, CLUTTER_TYPE_EFFECT)
+ 
+ enum {
+   PROP_0,
+@@ -133,8 +135,8 @@ create_brightness_pipeline (void)
+       brightness_pipeline = create_base_pipeline ();
+ 
+       snippet = cogl_snippet_new (COGL_SNIPPET_HOOK_FRAGMENT,
+-                                  brightness_glsl_declarations,
+-                                  brightness_glsl);
++                                  ROUNDED_CLIP_FRAGMENT_SHADER_DECLARATIONS_BLUR,
++                                  ROUNDED_CLIP_FRAGMENT_SHADER_CODE_BLUR);
+       cogl_pipeline_add_snippet (brightness_pipeline, snippet);
+       cogl_object_unref (snippet);
+     }
+@@ -144,7 +146,7 @@ create_brightness_pipeline (void)
+ 
+ 
+ static void
+-update_brightness (ShellBlurEffect *self,
++update_brightness (MetaShellBlurEffect *self,
+                    uint8_t          paint_opacity)
+ {
+   cogl_pipeline_set_color4ub (self->brightness_fb.pipeline,
+@@ -155,6 +157,39 @@ update_brightness (ShellBlurEffect *self
+ 
+   if (self->brightness_uniform > -1)
+     {
++      float width  = self->tex_width;
++      float height = self->tex_height;
++      float radius = meta_prefs_get_round_corner_radius();
++      float bounds[] = { 0.0, 0.0, width, height };
++      float corner_centers_1[] = {
++        radius,
++        radius,
++        width - radius,
++        radius
++      };
++      float corner_centers_2[] = {
++        width - radius,
++        height - radius,
++        radius,
++        height - radius
++      };
++      float pixel_step[] = { 1.0 / width, 1.0 / height };
++
++      cogl_pipeline_set_uniform_float (self->brightness_fb.pipeline,
++                                      self->bounds_uniform,
++                                      4, 1, bounds);
++      cogl_pipeline_set_uniform_float (self->brightness_fb.pipeline,
++                                      self->corner_centers_1_uniform,
++                                      4, 1, corner_centers_1);
++      cogl_pipeline_set_uniform_float (self->brightness_fb.pipeline,
++                                      self->corner_centers_2_uniform,
++                                      4, 1, corner_centers_2);
++      cogl_pipeline_set_uniform_float (self->brightness_fb.pipeline,
++                                      self->pixel_step_uniform,
++                                      2, 1, pixel_step);
++      cogl_pipeline_set_uniform_1i (self->brightness_fb.pipeline,
++                                    self->skip_uniform, 0);
++
+       cogl_pipeline_set_uniform_1f (self->brightness_fb.pipeline,
+                                     self->brightness_uniform,
+                                     self->brightness);
+@@ -212,7 +247,7 @@ update_fbo (FramebufferData *data,
+ }
+ 
+ static gboolean
+-update_actor_fbo (ShellBlurEffect *self,
++update_actor_fbo (MetaShellBlurEffect *self,
+                   unsigned int     width,
+                   unsigned int     height,
+                   float            downscale_factor)
+@@ -231,7 +266,7 @@ update_actor_fbo (ShellBlurEffect *self,
+ }
+ 
+ static gboolean
+-update_brightness_fbo (ShellBlurEffect *self,
++update_brightness_fbo (MetaShellBlurEffect *self,
+                        unsigned int     width,
+                        unsigned int     height,
+                        float            downscale_factor)
+@@ -250,7 +285,7 @@ update_brightness_fbo (ShellBlurEffect *
+ }
+ 
+ static gboolean
+-update_background_fbo (ShellBlurEffect *self,
++update_background_fbo (MetaShellBlurEffect *self,
+                        unsigned int     width,
+                        unsigned int     height)
+ {
+@@ -303,10 +338,10 @@ static void
+ shell_blur_effect_set_actor (ClutterActorMeta *meta,
+                              ClutterActor     *actor)
+ {
+-  ShellBlurEffect *self = SHELL_BLUR_EFFECT (meta);
++  MetaShellBlurEffect *self = META_SHELL_BLUR_EFFECT (meta);
+   ClutterActorMetaClass *meta_class;
+ 
+-  meta_class = CLUTTER_ACTOR_META_CLASS (shell_blur_effect_parent_class);
++  meta_class = CLUTTER_ACTOR_META_CLASS (meta_shell_blur_effect_parent_class);
+   meta_class->set_actor (meta, actor);
+ 
+   /* clear out the previous state */
+@@ -319,7 +354,7 @@ shell_blur_effect_set_actor (ClutterActo
+ }
+ 
+ static void
+-update_actor_box (ShellBlurEffect     *self,
++update_actor_box (MetaShellBlurEffect     *self,
+                   ClutterPaintContext *paint_context,
+                   ClutterActorBox     *source_actor_box)
+ {
+@@ -368,7 +403,7 @@ update_actor_box (ShellBlurEffect     *s
+ }
+ 
+ static void
+-add_blurred_pipeline (ShellBlurEffect  *self,
++add_blurred_pipeline (MetaShellBlurEffect  *self,
+                       ClutterPaintNode *node,
+                       uint8_t           paint_opacity)
+ {
+@@ -395,7 +430,7 @@ add_blurred_pipeline (ShellBlurEffect  *
+ }
+ 
+ static ClutterPaintNode *
+-create_blur_nodes (ShellBlurEffect  *self,
++create_blur_nodes (MetaShellBlurEffect  *self,
+                    ClutterPaintNode *node,
+                    uint8_t           paint_opacity)
+ {
+@@ -435,7 +470,7 @@ create_blur_nodes (ShellBlurEffect  *sel
+ }
+ 
+ static void
+-paint_background (ShellBlurEffect     *self,
++paint_background (MetaShellBlurEffect     *self,
+                   ClutterPaintNode    *node,
+                   ClutterPaintContext *paint_context,
+                   ClutterActorBox     *source_actor_box)
+@@ -482,7 +517,7 @@ paint_background (ShellBlurEffect     *s
+ }
+ 
+ static gboolean
+-update_framebuffers (ShellBlurEffect     *self,
++update_framebuffers (MetaShellBlurEffect     *self,
+                      ClutterPaintContext *paint_context,
+                      ClutterActorBox     *source_actor_box)
+ {
+@@ -509,7 +544,7 @@ update_framebuffers (ShellBlurEffect
+ }
+ 
+ static void
+-add_actor_node (ShellBlurEffect  *self,
++add_actor_node (MetaShellBlurEffect  *self,
+                 ClutterPaintNode *node,
+                 int               opacity)
+ {
+@@ -520,7 +555,7 @@ add_actor_node (ShellBlurEffect  *self,
+ }
+ 
+ static void
+-paint_actor_offscreen (ShellBlurEffect         *self,
++paint_actor_offscreen (MetaShellBlurEffect         *self,
+                        ClutterPaintNode        *node,
+                        ClutterEffectPaintFlags  flags)
+ {
+@@ -579,7 +614,7 @@ paint_actor_offscreen (ShellBlurEffect
+ }
+ 
+ static gboolean
+-needs_repaint (ShellBlurEffect         *self,
++needs_repaint (MetaShellBlurEffect         *self,
+                ClutterEffectPaintFlags  flags)
+ {
+   gboolean actor_cached;
+@@ -608,7 +643,7 @@ shell_blur_effect_paint_node (ClutterEff
+                               ClutterPaintContext     *paint_context,
+                               ClutterEffectPaintFlags  flags)
+ {
+-  ShellBlurEffect *self = SHELL_BLUR_EFFECT (effect);
++  MetaShellBlurEffect *self = META_SHELL_BLUR_EFFECT (effect);
+   uint8_t paint_opacity;
+ 
+   g_assert (self->actor != NULL);
+@@ -689,7 +724,7 @@ fail:
+ static void
+ shell_blur_effect_finalize (GObject *object)
+ {
+-  ShellBlurEffect *self = (ShellBlurEffect *)object;
++  MetaShellBlurEffect *self = (MetaShellBlurEffect *)object;
+ 
+   clear_framebuffer_data (&self->actor_fb);
+   clear_framebuffer_data (&self->background_fb);
+@@ -699,7 +734,7 @@ shell_blur_effect_finalize (GObject *obj
+   g_clear_pointer (&self->background_fb.pipeline, cogl_object_unref);
+   g_clear_pointer (&self->brightness_fb.pipeline, cogl_object_unref);
+ 
+-  G_OBJECT_CLASS (shell_blur_effect_parent_class)->finalize (object);
++  G_OBJECT_CLASS (meta_shell_blur_effect_parent_class)->finalize (object);
+ }
+ 
+ static void
+@@ -708,7 +743,7 @@ shell_blur_effect_get_property (GObject
+                                 GValue     *value,
+                                 GParamSpec *pspec)
+ {
+-  ShellBlurEffect *self = SHELL_BLUR_EFFECT (object);
++  MetaShellBlurEffect *self = META_SHELL_BLUR_EFFECT (object);
+ 
+   switch (prop_id)
+     {
+@@ -735,20 +770,20 @@ shell_blur_effect_set_property (GObject
+                                 const GValue *value,
+                                 GParamSpec   *pspec)
+ {
+-  ShellBlurEffect *self = SHELL_BLUR_EFFECT (object);
++  MetaShellBlurEffect *self = META_SHELL_BLUR_EFFECT (object);
+ 
+   switch (prop_id)
+     {
+     case PROP_SIGMA:
+-      shell_blur_effect_set_sigma (self, g_value_get_int (value));
++      meta_shell_blur_effect_set_sigma (self, g_value_get_int (value));
+       break;
+ 
+     case PROP_BRIGHTNESS:
+-      shell_blur_effect_set_brightness (self, g_value_get_float (value));
++      meta_shell_blur_effect_set_brightness (self, g_value_get_float (value));
+       break;
+ 
+     case PROP_MODE:
+-      shell_blur_effect_set_mode (self, g_value_get_enum (value));
++      meta_shell_blur_effect_set_mode (self, g_value_get_enum (value));
+       break;
+ 
+     default:
+@@ -757,7 +792,7 @@ shell_blur_effect_set_property (GObject
+ }
+ 
+ static void
+-shell_blur_effect_class_init (ShellBlurEffectClass *klass)
++meta_shell_blur_effect_class_init (MetaShellBlurEffectClass *klass)
+ {
+   GObjectClass *object_class = G_OBJECT_CLASS (klass);
+   ClutterActorMetaClass *meta_class = CLUTTER_ACTOR_META_CLASS (klass);
+@@ -797,7 +832,7 @@ shell_blur_effect_class_init (ShellBlurE
+ }
+ 
+ static void
+-shell_blur_effect_init (ShellBlurEffect *self)
++meta_shell_blur_effect_init (MetaShellBlurEffect *self)
+ {
+   self->mode = SHELL_BLUR_MODE_ACTOR;
+   self->sigma = 0;
+@@ -808,27 +843,38 @@ shell_blur_effect_init (ShellBlurEffect
+   self->brightness_fb.pipeline = create_brightness_pipeline ();
+   self->brightness_uniform =
+     cogl_pipeline_get_uniform_location (self->brightness_fb.pipeline, "brightness");
++  self->bounds_uniform =
++    cogl_pipeline_get_uniform_location (self->brightness_fb.pipeline, "bounds");
++  self->corner_centers_1_uniform =
++    cogl_pipeline_get_uniform_location (self->brightness_fb.pipeline, "corner_centers_1");
++  self->corner_centers_2_uniform =
++    cogl_pipeline_get_uniform_location (self->brightness_fb.pipeline, "corner_centers_2");
++  self->pixel_step_uniform =
++    cogl_pipeline_get_uniform_location (self->brightness_fb.pipeline, "pixel_step");
++  self->skip_uniform =
++    cogl_pipeline_get_uniform_location (self->brightness_fb.pipeline, "skip");
++
+ }
+ 
+-ShellBlurEffect *
+-shell_blur_effect_new (void)
++MetaShellBlurEffect *
++meta_shell_blur_effect_new (void)
+ {
+-  return g_object_new (SHELL_TYPE_BLUR_EFFECT, NULL);
++  return g_object_new (META_SHELL_TYPE_BLUR_EFFECT, NULL);
+ }
+ 
+ int
+-shell_blur_effect_get_sigma (ShellBlurEffect *self)
++meta_shell_blur_effect_get_sigma (MetaShellBlurEffect *self)
+ {
+-  g_return_val_if_fail (SHELL_IS_BLUR_EFFECT (self), -1);
++  g_return_val_if_fail (META_IS_SHELL_BLUR_EFFECT (self), -1);
+ 
+   return self->sigma;
+ }
+ 
+ void
+-shell_blur_effect_set_sigma (ShellBlurEffect *self,
++meta_shell_blur_effect_set_sigma (MetaShellBlurEffect *self,
+                              int              sigma)
+ {
+-  g_return_if_fail (SHELL_IS_BLUR_EFFECT (self));
++  g_return_if_fail (META_IS_SHELL_BLUR_EFFECT (self));
+ 
+   if (self->sigma == sigma)
+     return;
+@@ -843,18 +889,18 @@ shell_blur_effect_set_sigma (ShellBlurEf
+ }
+ 
+ float
+-shell_blur_effect_get_brightness (ShellBlurEffect *self)
++meta_shell_blur_effect_get_brightness (MetaShellBlurEffect *self)
+ {
+-  g_return_val_if_fail (SHELL_IS_BLUR_EFFECT (self), FALSE);
++  g_return_val_if_fail (META_IS_SHELL_BLUR_EFFECT (self), FALSE);
+ 
+   return self->brightness;
+ }
+ 
+ void
+-shell_blur_effect_set_brightness (ShellBlurEffect *self,
++meta_shell_blur_effect_set_brightness (MetaShellBlurEffect *self,
+                                   float            brightness)
+ {
+-  g_return_if_fail (SHELL_IS_BLUR_EFFECT (self));
++  g_return_if_fail (META_IS_SHELL_BLUR_EFFECT (self));
+ 
+   if (self->brightness == brightness)
+     return;
+@@ -869,18 +915,18 @@ shell_blur_effect_set_brightness (ShellB
+ }
+ 
+ ShellBlurMode
+-shell_blur_effect_get_mode (ShellBlurEffect *self)
++meta_shell_blur_effect_get_mode (MetaShellBlurEffect *self)
+ {
+-  g_return_val_if_fail (SHELL_IS_BLUR_EFFECT (self), -1);
++  g_return_val_if_fail (META_IS_SHELL_BLUR_EFFECT (self), -1);
+ 
+   return self->mode;
+ }
+ 
+ void
+-shell_blur_effect_set_mode (ShellBlurEffect *self,
++meta_shell_blur_effect_set_mode (MetaShellBlurEffect *self,
+                             ShellBlurMode    mode)
+ {
+-  g_return_if_fail (SHELL_IS_BLUR_EFFECT (self));
++  g_return_if_fail (META_IS_SHELL_BLUR_EFFECT (self));
+ 
+   if (self->mode == mode)
+     return;
+diff -Narup a/src/shell-blur-effect.h b/src/shell-blur-effect.h
+--- a/src/shell-blur-effect.h	2021-10-07 20:18:19.538167665 +0800
++++ b/src/shell-blur-effect.h	2021-10-07 20:18:19.539167720 +0800
+@@ -20,6 +20,10 @@
+ 
+ #pragma once
+ 
++/*
++ * have to rename the type, to avoide conflicts with gnome shell
++ */ 
++
+ #include <clutter/clutter.h>
+ 
+ G_BEGIN_DECLS
+@@ -37,21 +41,21 @@ typedef enum
+   SHELL_BLUR_MODE_BACKGROUND,
+ } ShellBlurMode;
+ 
+-#define SHELL_TYPE_BLUR_EFFECT (shell_blur_effect_get_type())
+-G_DECLARE_FINAL_TYPE (ShellBlurEffect, shell_blur_effect, SHELL, BLUR_EFFECT, ClutterEffect)
++#define META_SHELL_TYPE_BLUR_EFFECT (meta_shell_blur_effect_get_type())
++G_DECLARE_FINAL_TYPE (MetaShellBlurEffect, meta_shell_blur_effect, META, SHELL_BLUR_EFFECT, ClutterEffect)
+ 
+-ShellBlurEffect *shell_blur_effect_new (void);
++MetaShellBlurEffect *meta_shell_blur_effect_new (void);
+ 
+-int shell_blur_effect_get_sigma (ShellBlurEffect *self);
+-void shell_blur_effect_set_sigma (ShellBlurEffect *self,
++int meta_shell_blur_effect_get_sigma (MetaShellBlurEffect *self);
++void meta_shell_blur_effect_set_sigma (MetaShellBlurEffect *self,
+                                   int              sigma);
+ 
+-float shell_blur_effect_get_brightness (ShellBlurEffect *self);
+-void shell_blur_effect_set_brightness (ShellBlurEffect *self,
++float meta_shell_blur_effect_get_brightness (MetaShellBlurEffect *self);
++void meta_shell_blur_effect_set_brightness (MetaShellBlurEffect *self,
+                                        float            brightness);
+ 
+-ShellBlurMode shell_blur_effect_get_mode (ShellBlurEffect *self);
+-void shell_blur_effect_set_mode (ShellBlurEffect *self,
++ShellBlurMode meta_shell_blur_effect_get_mode (MetaShellBlurEffect *self);
++void meta_shell_blur_effect_set_mode (MetaShellBlurEffect *self,
+                                  ShellBlurMode    mode);
+ 
+ G_END_DECLS

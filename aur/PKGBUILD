@@ -6,7 +6,7 @@
 # Contributor: Michael Kanis <mkanis_at_gmx_dot_de>
 
 pkgname=mutter-rounded
-pkgver=40.4
+pkgver=40.5
 pkgrel=1
 pkgdesc="A window manager for GNOME, with rounded corners patch"
 url="https://gitlab.gnome.org/GNOME/mutter"
@@ -16,32 +16,43 @@ depends=(dconf gobject-introspection-runtime gsettings-desktop-schemas
          libcanberra startup-notification zenity libsm gnome-desktop upower
          libxkbcommon-x11 gnome-settings-daemon libgudev libinput pipewire
          xorg-xwayland graphene libxkbfile)
-makedepends=(gobject-introspection git egl-wayland meson xorg-server)
+makedepends=(gobject-introspection git egl-wayland meson xorg-server
+             wayland-protocols)
 checkdepends=(xorg-server-xvfb pipewire-media-session)
 provides=(mutter libmutter-8.so)
 conflicts=(mutter)
 groups=(gnome)
 install=mutter.install
 
-_commit=2bfef7dbdc6f432a5433c93c1fcdbf00099367c8  # tags/40.4^0
+_commit=2b2b3ab8502a5bcc2436e169279d2421f6f1a605  # tags/40.5^0
 _mutter_src="$pkgname::git+https://gitlab.gnome.org/GNOME/mutter.git#commit=$_commit"
-_setting_src="mutter_setting::https://gitlab.gnome.org/lluo/mutter-rounded-setting/uploads/7370b166a10976a0846b57a5ebbe2737/main.js"
+_setting_src="mutter_setting::https://gitlab.gnome.org/lluo/mutter-rounded-setting/uploads/100ce7589dd614832b8d500f3602ebe9/main.js"
+_shell_blur_h_src="https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/${pkgver}/src/shell-blur-effect.h"
+_shell_blur_c_src="https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/${pkgver}/src/shell-blur-effect.c"
 
-if [ "${LANG}" == "zh_CN.UTF-8" ] ; then
+if [ "${LANG}" = "zh_CN.UTF-8" ] ; then
   _mutter_src="$pkgname::git+https://gitee.com/mirrors_GNOME/mutter.git#commit=$_commit"
-  _setting_src="mutter_setting::https://gitee.com/lluo/mutter-rounded-setting/attach_files/833785/download/main.js"
+  _setting_src="mutter_setting::https://gitee.com/lluo/mutter-rounded-setting/attach_files/834737/download/main.js"
 fi
 
 source=("$_mutter_src"
         "rounded_corners_${pkgver}.patch"
+        "shell_blur_effect_${pkgver}.patch"
         "meta_clip_effect.c"
         "meta_clip_effect.h"
+        "shader.h"
+        "$_shell_blur_h_src"
+        "$_shell_blur_c_src"
         "$_setting_src")
 sha256sums=('SKIP'
-            '993cb349226afe198771bdca32c225d1bf663b2b14a3454270fa0b64f4e19cab'
-            '1d4757a46db018f0ac080787c372a01f563499a19c6315fd1b4c3610f450b041'
-            '2a4670913601b97f809a486da7c11b4e14472f62211154d5a417d3b3e4d77859'
-            '08a3dbbea7205cdc422901f9b78fd5fbe95bf7378197f33a07bf70a342f35dc5')
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP')
 
 pkgver() {
   cd $pkgname
@@ -52,11 +63,13 @@ prepare() {
   sed -i '1i\#!/usr/bin/gjs' mutter_setting
 
   cd $pkgname
-  cp $srcdir/meta_clip_effect.[ch] $srcdir/$pkgname/src
+  cp $srcdir/*.[ch] $srcdir/$pkgname/src
   patch -p1 < $srcdir/rounded_corners_${pkgver}.patch
+  patch -p1 < $srcdir/shell_blur_effect_${pkgver}.patch
 }
 
 build() {
+  echo "skip" > /dev/null
   CFLAGS="${CFLAGS/-O2/-O3} -fno-semantic-interposition"
   LDFLAGS+=" -Wl,-Bsymbolic-functions"
   arch-meson $pkgname build \

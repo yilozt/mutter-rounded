@@ -1,14 +1,14 @@
-> Mutter with Rounded corners patch
->
-> tested in gnome-shell 40.4 with Xorg session
+A window manager for GNOME, with rounded corners patch.Tested in gnome-shell 40.5, just works in xorg session. 
 
+for  arch based distro user, just install `mutter-rounded` by AUR helper. 
 
+# ScreenShot
 
-- ScreenShots
+![](https://s3.bmp.ovh/imgs/2021/10/3297a02a2c16113f.png)
 
-![](https://s3.bmp.ovh/imgs/2021/08/868f3c09b0555f34.png)
+[![599HWn.png](https://z3.ax1x.com/2021/10/07/599HWn.png)](https://imgtu.com/i/599HWn)
 
-- Settings
+# Settings
 
 ![](https://s3.bmp.ovh/imgs/2021/09/47cc305d9f18342e.png)
 

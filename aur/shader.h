@@ -137,5 +137,5 @@ ROUNDED_CLIP_FRAGMENT_SHADER_FUNCS
 "                                           corner_centers_1,             \n"\
 "                                           corner_centers_2,             \n"\
 "                                           texture_coord);               \n"\
-"  cogl_color_out.rgb *= brightness;                                      \n"\
-"}                                                                        \n"
+"}                                                                        \n"\
+"cogl_color_out.rgb *= brightness;                                        \n"

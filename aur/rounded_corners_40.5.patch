@@ -81,11 +81,33 @@ index 23fa9f3ad..eee73e708 100644
      <key name="overlay-key" type="s">
        <default>'Super_L'</default>
        <summary>Modifier to use for extended window management operations</summary>
+diff --git a/src/compositor/compositor-private.h b/src/compositor/compositor-private.h
+index 580618e48..f62de1924 100644
+--- a/src/compositor/compositor-private.h
++++ b/src/compositor/compositor-private.h
+@@ -82,6 +82,8 @@ gboolean meta_compositor_is_switching_workspace (MetaCompositor *compositor);
+ 
+ MetaLaters * meta_compositor_get_laters (MetaCompositor *compositor);
+ 
++void meta_compositor_update_blur_behind(MetaCompositor *compositor);
++
+ /*
+  * This function takes a 64 bit time stamp from the monotonic clock, and clamps
+  * it to the scope of the X server clock, without losing the granularity.
 diff --git a/src/compositor/compositor.c b/src/compositor/compositor.c
-index 1770550d4..ac129babe 100644
+index 1770550d4..26efc84c1 100644
 --- a/src/compositor/compositor.c
 +++ b/src/compositor/compositor.c
-@@ -610,6 +610,8 @@ meta_compositor_add_window (MetaCompositor    *compositor,
+@@ -84,6 +84,8 @@
+ #include "wayland/meta-wayland-private.h"
+ #endif
+ 
++#include "core/meta-workspace-manager-private.h"
++
+ enum
+ {
+   PROP_0,
+@@ -610,6 +612,8 @@ meta_compositor_add_window (MetaCompositor    *compositor,
      window_group = priv->window_group;
  
    clutter_actor_add_child (window_group, CLUTTER_ACTOR (window_actor));
@@ -94,28 +116,36 @@ index 1770550d4..ac129babe 100644
  
    /* Initial position in the stack is arbitrary; stacking will be synced
     * before we first paint.
-@@ -661,6 +663,7 @@ meta_compositor_queue_frame_drawn (MetaCompositor *compositor,
+@@ -661,6 +665,7 @@ meta_compositor_queue_frame_drawn (MetaCompositor *compositor,
    MetaWindowActor *window_actor = meta_window_actor_from_window (window);
  
    meta_window_actor_queue_frame_drawn (window_actor, no_delay_frame);
-+  meta_window_actor_set_blur_behind(window_actor); 
++  meta_compositor_update_blur_behind(compositor);
  }
  
  void
-@@ -992,6 +995,12 @@ meta_compositor_sync_stack (MetaCompositor  *compositor,
+@@ -992,6 +997,20 @@ meta_compositor_sync_stack (MetaCompositor  *compositor,
  
    sync_actor_stacking (compositor);
  
++  MetaWorkspaceManager *manager = priv->display->workspace_manager;
++  MetaWorkspace *active_workspace = manager->active_workspace;
++
 +  for (GList *l = priv->windows; l; l = l->next)
 +    {
-+      meta_window_actor_set_blur_behind(l->data);
-+      meta_window_actor_update_blur_position_size(l->data);
++      MetaWindow *window = meta_window_actor_get_meta_window(l->data);
++      MetaWorkspace *workspace = meta_window_get_workspace(window);
++      if (workspace == active_workspace)
++        {
++          meta_window_actor_set_blur_behind(l->data);
++          meta_window_actor_update_blur_position_size(l->data);
++        }
 +    }
 +
    top_window_actor = get_top_visible_window_actor (compositor);
  
    if (priv->top_window_actor == top_window_actor)
-@@ -1022,7 +1031,17 @@ meta_compositor_sync_window_geometry (MetaCompositor *compositor,
+@@ -1022,7 +1041,17 @@ meta_compositor_sync_window_geometry (MetaCompositor *compositor,
    changes = meta_window_actor_sync_actor_geometry (window_actor, did_placement);
  
    if (changes & META_WINDOW_ACTOR_CHANGE_SIZE)
@@ -129,11 +159,11 @@ index 1770550d4..ac129babe 100644
 +  if (changes & META_WINDOW_ACTOR_CHANGE_POSITION)
 +    meta_window_actor_update_blur_position_size(window_actor);
 +
-+  meta_window_actor_set_blur_behind(window_actor);
++  meta_compositor_update_blur_behind(compositor);
  }
  
  static void
-@@ -1188,6 +1207,44 @@ meta_compositor_get_property (GObject    *object,
+@@ -1188,6 +1217,44 @@ meta_compositor_get_property (GObject    *object,
      }
  }
  
@@ -178,7 +208,7 @@ index 1770550d4..ac129babe 100644
  static void
  meta_compositor_init (MetaCompositor *compositor)
  {
-@@ -1218,6 +1275,8 @@ meta_compositor_constructed (GObject *object)
+@@ -1218,6 +1285,8 @@ meta_compositor_constructed (GObject *object)
  
    priv->laters = meta_laters_new (compositor);
  
@@ -187,7 +217,7 @@ index 1770550d4..ac129babe 100644
    G_OBJECT_CLASS (meta_compositor_parent_class)->constructed (object);
  }
  
-@@ -1243,6 +1302,8 @@ meta_compositor_dispose (GObject *object)
+@@ -1243,6 +1312,8 @@ meta_compositor_dispose (GObject *object)
    g_clear_pointer (&priv->feedback_group, clutter_actor_destroy);
    g_clear_pointer (&priv->windows, g_list_free);
  
@@ -196,6 +226,28 @@ index 1770550d4..ac129babe 100644
    G_OBJECT_CLASS (meta_compositor_parent_class)->dispose (object);
  }
  
+@@ -1576,3 +1647,20 @@ meta_compositor_get_laters (MetaCompositor *compositor)
+ 
+   return priv->laters;
+ }
++
++void meta_compositor_update_blur_behind(MetaCompositor *compositor)
++{
++  MetaCompositorPrivate *priv =
++    meta_compositor_get_instance_private (compositor);
++
++  MetaWorkspaceManager *manager = priv->display->workspace_manager;
++  MetaWorkspace *active_workspace = manager->active_workspace;
++
++  for (GList *l = priv->windows; l; l = l->next)
++    {
++      MetaWindow *window = meta_window_actor_get_meta_window(l->data);
++      MetaWorkspace *workspace = meta_window_get_workspace(window);
++      if (workspace == active_workspace)
++        meta_window_actor_set_blur_behind(l->data);
++    }
++}
+\ No newline at end of file
 diff --git a/src/compositor/meta-window-actor-private.h b/src/compositor/meta-window-actor-private.h
 index 64741e416..a0dc4f69d 100644
 --- a/src/compositor/meta-window-actor-private.h
@@ -218,19 +270,20 @@ index 64741e416..a0dc4f69d 100644
 +void meta_window_actor_update_blur_window_opacity (MetaWindowActor *self);
  #endif /* META_WINDOW_ACTOR_PRIVATE_H */
 diff --git a/src/compositor/meta-window-actor-x11.c b/src/compositor/meta-window-actor-x11.c
-index e4769e087..816d482b0 100644
+index e4769e087..60d376858 100644
 --- a/src/compositor/meta-window-actor-x11.c
 +++ b/src/compositor/meta-window-actor-x11.c
-@@ -142,7 +142,7 @@ surface_repaint_scheduled (MetaSurfaceActor *actor,
+@@ -142,7 +142,8 @@ surface_repaint_scheduled (MetaSurfaceActor *actor,
                             gpointer          user_data)
  {
    MetaWindowActorX11 *actor_x11 = META_WINDOW_ACTOR_X11 (user_data);
 -
-+  meta_window_actor_set_blur_behind(META_WINDOW_ACTOR(actor_x11));
++  MetaWindow *window = meta_window_actor_get_meta_window (META_WINDOW_ACTOR(actor_x11));
++  meta_compositor_update_blur_behind( meta_display_get_compositor (window->display));
    actor_x11->repaint_scheduled = TRUE;
  }
  
-@@ -400,6 +400,8 @@ surface_size_changed (MetaSurfaceActor *actor,
+@@ -400,6 +401,8 @@ surface_size_changed (MetaSurfaceActor *actor,
    MetaWindowActorX11 *actor_x11 = META_WINDOW_ACTOR_X11 (user_data);
  
    meta_window_actor_x11_update_shape (actor_x11);
@@ -239,7 +292,7 @@ index e4769e087..816d482b0 100644
  }
  
  static void
-@@ -538,6 +540,9 @@ has_shadow (MetaWindowActorX11 *actor_x11)
+@@ -538,6 +541,9 @@ has_shadow (MetaWindowActorX11 *actor_x11)
    if (meta_window_get_frame (window))
      return TRUE;
  
@@ -249,7 +302,7 @@ index e4769e087..816d482b0 100644
    /*
     * Do not add shadows to non-opaque (ARGB32) windows, as we can't easily
     * generate shadows for them.
-@@ -694,6 +699,8 @@ clip_shadow_under_window (MetaWindowActorX11 *actor_x11)
+@@ -694,6 +700,8 @@ clip_shadow_under_window (MetaWindowActorX11 *actor_x11)
  
    if (window->frame)
      return TRUE;
@@ -258,7 +311,7 @@ index e4769e087..816d482b0 100644
  
    return meta_window_actor_is_opaque (META_WINDOW_ACTOR (actor_x11));
  }
-@@ -1036,6 +1043,11 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
+@@ -1036,6 +1044,11 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
      {
        region = cairo_region_reference (window->shape_region);
      }
@@ -270,7 +323,7 @@ index e4769e087..816d482b0 100644
    else
      {
        /* If we don't have a shape on the server, that means that
-@@ -1043,7 +1055,7 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
+@@ -1043,7 +1056,7 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
         * entire window. */
        region = cairo_region_create_rectangle (&client_area);
      }
@@ -279,7 +332,7 @@ index e4769e087..816d482b0 100644
    if (window->shape_region || window->frame)
      build_and_scan_frame_mask (actor_x11, region);
  
-@@ -1151,6 +1163,23 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
+@@ -1151,6 +1164,23 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
    cairo_region_destroy (opaque_region);
  }
  
@@ -303,7 +356,7 @@ index e4769e087..816d482b0 100644
  static void
  update_frame_bounds (MetaWindowActorX11 *actor_x11)
  {
-@@ -1158,8 +1187,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
+@@ -1158,8 +1188,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
      meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_x11));
  
    g_clear_pointer (&actor_x11->frame_bounds, cairo_region_destroy);
@@ -319,7 +372,7 @@ index e4769e087..816d482b0 100644
  }
  
  static void
-@@ -1304,7 +1338,10 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
+@@ -1304,7 +1339,10 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
        cairo_region_t *clip = actor_x11->shadow_clip;
        CoglFramebuffer *framebuffer;
  
@@ -332,7 +385,7 @@ index e4769e087..816d482b0 100644
  
        /* The frame bounds are already subtracted from actor_x11->shadow_clip
 diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
-index d4fc9a43a..4339cf63d 100644
+index d4fc9a43a..e0d1d7a78 100644
 --- a/src/compositor/meta-window-actor.c
 +++ b/src/compositor/meta-window-actor.c
 @@ -41,6 +41,9 @@
@@ -359,7 +412,7 @@ index d4fc9a43a..4339cf63d 100644
    int geometry_scale;
  
    /*
-@@ -119,6 +129,221 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE (MetaWindowActor, meta_window_actor, CLUTTER_TY
+@@ -119,6 +129,235 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE (MetaWindowActor, meta_window_actor, CLUTTER_TY
                                    G_IMPLEMENT_INTERFACE (META_TYPE_CULLABLE, cullable_iface_init)
                                    G_IMPLEMENT_INTERFACE (META_TYPE_SCREEN_CAST_WINDOW, screen_cast_window_iface_init));
  
@@ -389,12 +442,27 @@ index d4fc9a43a..4339cf63d 100644
 +  meta_window_get_frame_rect (priv->window, &frame_rect);
 +  meta_window_get_buffer_rect (priv->window, &buf_rect);
 +
-+  clutter_actor_set_position (priv->blur_actor,
-+                              frame_rect.x + priv->clip_padding[0] - 2,
-+                              frame_rect.y + priv->clip_padding[2] - 2);
-+  clutter_actor_set_size (priv->blur_actor,
-+                          frame_rect.width - priv->clip_padding[0] - priv->clip_padding[1]  + 3,
-+                          frame_rect.height - priv->clip_padding[2] - priv->clip_padding[3] + 3);
++  if (meta_window_get_maximized (priv->window) ||
++      meta_window_is_fullscreen (priv->window))
++    {
++      clutter_actor_set_position (priv->blur_actor,
++                                  frame_rect.x,
++                                  frame_rect.y);
++      clutter_actor_set_size (priv->blur_actor,
++                              frame_rect.width,
++                              frame_rect.height);
++      meta_shell_blur_effect_set_skip (priv->blur_effect, true);
++    }
++  else
++   {
++      clutter_actor_set_position (priv->blur_actor,
++                                  frame_rect.x + priv->clip_padding[0] - 2,
++                                  frame_rect.y + priv->clip_padding[2] - 2);
++      clutter_actor_set_size (priv->blur_actor,
++                              frame_rect.width - priv->clip_padding[0] - priv->clip_padding[1] + 3,
++                              frame_rect.height - priv->clip_padding[2] - priv->clip_padding[3] + 3);
++      meta_shell_blur_effect_set_skip (priv->blur_effect, false);
++   }
 +}
 +
 +void
@@ -506,7 +574,6 @@ index d4fc9a43a..4339cf63d 100644
 +    meta_prefs_get_clip_edge_padding(window->res_name, priv->clip_padding);
 +
 +  meta_clip_effect_set_bounds(priv->round_clip_effect, &bounds, priv->clip_padding);
-+  // meta_window_actor_update_blur_position_size(self);
 +}
 +
 +static gboolean
@@ -581,7 +648,7 @@ index d4fc9a43a..4339cf63d 100644
  static void
  meta_window_actor_class_init (MetaWindowActorClass *klass)
  {
-@@ -216,6 +441,11 @@ meta_window_actor_init (MetaWindowActor *self)
+@@ -216,6 +455,11 @@ meta_window_actor_init (MetaWindowActor *self)
      meta_window_actor_get_instance_private (self);
  
    priv->geometry_scale = 1;
@@ -593,7 +660,7 @@ index d4fc9a43a..4339cf63d 100644
  }
  
  static void
-@@ -399,6 +629,20 @@ init_surface_actor (MetaWindowActor *self)
+@@ -399,6 +643,20 @@ init_surface_actor (MetaWindowActor *self)
      meta_window_actor_assign_surface_actor (self, surface_actor);
  }
  
@@ -614,7 +681,7 @@ index d4fc9a43a..4339cf63d 100644
  static void
  meta_window_actor_constructed (GObject *object)
  {
-@@ -424,6 +668,8 @@ meta_window_actor_constructed (GObject *object)
+@@ -424,6 +682,8 @@ meta_window_actor_constructed (GObject *object)
      priv->first_frame_state = DRAWING_FIRST_FRAME;
  
    meta_window_actor_sync_actor_geometry (self, priv->window->placed);
@@ -623,7 +690,7 @@ index d4fc9a43a..4339cf63d 100644
  }
  
  static void
-@@ -470,6 +716,7 @@ meta_window_actor_set_property (GObject      *object,
+@@ -470,6 +730,7 @@ meta_window_actor_set_property (GObject      *object,
      {
      case PROP_META_WINDOW:
        priv->window = g_value_dup_object (value);
@@ -631,7 +698,7 @@ index d4fc9a43a..4339cf63d 100644
        g_signal_connect_object (priv->window, "notify::appears-focused",
                                 G_CALLBACK (window_appears_focused_notify), self, 0);
        break;
-@@ -662,6 +909,20 @@ start_simple_effect (MetaWindowActor  *self,
+@@ -662,6 +923,20 @@ start_simple_effect (MetaWindowActor  *self,
    return TRUE;
  }
  
@@ -652,7 +719,7 @@ index d4fc9a43a..4339cf63d 100644
  static void
  meta_window_actor_after_effects (MetaWindowActor *self)
  {
-@@ -675,7 +936,13 @@ meta_window_actor_after_effects (MetaWindowActor *self)
+@@ -675,7 +950,13 @@ meta_window_actor_after_effects (MetaWindowActor *self)
  
    if (priv->needs_destroy)
      {
@@ -667,7 +734,7 @@ index d4fc9a43a..4339cf63d 100644
      }
    else
      {
-@@ -803,6 +1070,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
+@@ -803,6 +1084,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
      clutter_actor_destroy (CLUTTER_ACTOR (self));
  }
  

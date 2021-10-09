@@ -6,7 +6,7 @@ for  arch based distro user, just install `mutter-rounded` by AUR helper.
 
 ![](https://s3.bmp.ovh/imgs/2021/10/3297a02a2c16113f.png)
 
-[![599HWn.png](https://z3.ax1x.com/2021/10/07/599HWn.png)](https://imgtu.com/i/599HWn)
+![599HWn.png](https://z3.ax1x.com/2021/10/07/599HWn.png)
 
 # Settings
 

@@ -95,7 +95,7 @@ index 580618e48..f62de1924 100644
   * This function takes a 64 bit time stamp from the monotonic clock, and clamps
   * it to the scope of the X server clock, without losing the granularity.
 diff --git a/src/compositor/compositor.c b/src/compositor/compositor.c
-index 1770550d4..26efc84c1 100644
+index 1770550d4..552d7bb24 100644
 --- a/src/compositor/compositor.c
 +++ b/src/compositor/compositor.c
 @@ -84,6 +84,8 @@
@@ -107,16 +107,18 @@ index 1770550d4..26efc84c1 100644
  enum
  {
    PROP_0,
-@@ -610,6 +612,8 @@ meta_compositor_add_window (MetaCompositor    *compositor,
-     window_group = priv->window_group;
- 
-   clutter_actor_add_child (window_group, CLUTTER_ACTOR (window_actor));
-+  meta_window_actor_create_blur_actor(window_actor);
-+
- 
-   /* Initial position in the stack is arbitrary; stacking will be synced
+@@ -615,6 +617,10 @@ meta_compositor_add_window (MetaCompositor    *compositor,
     * before we first paint.
-@@ -661,6 +665,7 @@ meta_compositor_queue_frame_drawn (MetaCompositor *compositor,
+    */
+   priv->windows = g_list_append (priv->windows, window_actor);
++
++  if (window->client_type == META_WINDOW_CLIENT_TYPE_X11)
++    meta_window_actor_create_blur_actor(window_actor);
++
+   sync_actor_stacking (compositor);
+ }
+ 
+@@ -661,6 +667,7 @@ meta_compositor_queue_frame_drawn (MetaCompositor *compositor,
    MetaWindowActor *window_actor = meta_window_actor_from_window (window);
  
    meta_window_actor_queue_frame_drawn (window_actor, no_delay_frame);
@@ -124,7 +126,7 @@ index 1770550d4..26efc84c1 100644
  }
  
  void
-@@ -992,6 +997,20 @@ meta_compositor_sync_stack (MetaCompositor  *compositor,
+@@ -992,6 +999,20 @@ meta_compositor_sync_stack (MetaCompositor  *compositor,
  
    sync_actor_stacking (compositor);
  
@@ -145,7 +147,7 @@ index 1770550d4..26efc84c1 100644
    top_window_actor = get_top_visible_window_actor (compositor);
  
    if (priv->top_window_actor == top_window_actor)
-@@ -1022,7 +1041,17 @@ meta_compositor_sync_window_geometry (MetaCompositor *compositor,
+@@ -1022,7 +1043,17 @@ meta_compositor_sync_window_geometry (MetaCompositor *compositor,
    changes = meta_window_actor_sync_actor_geometry (window_actor, did_placement);
  
    if (changes & META_WINDOW_ACTOR_CHANGE_SIZE)
@@ -163,7 +165,7 @@ index 1770550d4..26efc84c1 100644
  }
  
  static void
-@@ -1188,6 +1217,44 @@ meta_compositor_get_property (GObject    *object,
+@@ -1188,6 +1219,44 @@ meta_compositor_get_property (GObject    *object,
      }
  }
  
@@ -208,7 +210,7 @@ index 1770550d4..26efc84c1 100644
  static void
  meta_compositor_init (MetaCompositor *compositor)
  {
-@@ -1218,6 +1285,8 @@ meta_compositor_constructed (GObject *object)
+@@ -1218,6 +1287,8 @@ meta_compositor_constructed (GObject *object)
  
    priv->laters = meta_laters_new (compositor);
  
@@ -217,7 +219,7 @@ index 1770550d4..26efc84c1 100644
    G_OBJECT_CLASS (meta_compositor_parent_class)->constructed (object);
  }
  
-@@ -1243,6 +1312,8 @@ meta_compositor_dispose (GObject *object)
+@@ -1243,6 +1314,8 @@ meta_compositor_dispose (GObject *object)
    g_clear_pointer (&priv->feedback_group, clutter_actor_destroy);
    g_clear_pointer (&priv->windows, g_list_free);
  
@@ -226,7 +228,7 @@ index 1770550d4..26efc84c1 100644
    G_OBJECT_CLASS (meta_compositor_parent_class)->dispose (object);
  }
  
-@@ -1576,3 +1647,20 @@ meta_compositor_get_laters (MetaCompositor *compositor)
+@@ -1576,3 +1649,20 @@ meta_compositor_get_laters (MetaCompositor *compositor)
  
    return priv->laters;
  }
@@ -249,10 +251,10 @@ index 1770550d4..26efc84c1 100644
 +}
 \ No newline at end of file
 diff --git a/src/compositor/meta-window-actor-private.h b/src/compositor/meta-window-actor-private.h
-index 64741e416..a0dc4f69d 100644
+index 64741e416..98495f3d7 100644
 --- a/src/compositor/meta-window-actor-private.h
 +++ b/src/compositor/meta-window-actor-private.h
-@@ -99,4 +99,16 @@ void meta_window_actor_update_regions (MetaWindowActor *self);
+@@ -99,4 +99,15 @@ void meta_window_actor_update_regions (MetaWindowActor *self);
  
  gboolean meta_window_actor_can_freeze_commits (MetaWindowActor *self);
  
@@ -264,11 +266,475 @@ index 64741e416..a0dc4f69d 100644
 +void meta_window_actor_create_blur_actor (MetaWindowActor *self);
 +void meta_window_actor_set_blur_behind (MetaWindowActor *self);
 +void meta_window_actor_update_blur_position_size (MetaWindowActor *self);
-+void meta_window_actor_remove_blur (MetaWindowActor *self);
 +void meta_window_actor_update_blur_sigmal (MetaWindowActor *self);
 +void meta_window_actor_update_blur_brightness (MetaWindowActor *self);
 +void meta_window_actor_update_blur_window_opacity (MetaWindowActor *self);
  #endif /* META_WINDOW_ACTOR_PRIVATE_H */
+diff --git a/src/compositor/meta-window-actor-wayland.c b/src/compositor/meta-window-actor-wayland.c
+index 641c924db..28f1920f8 100644
+--- a/src/compositor/meta-window-actor-wayland.c
++++ b/src/compositor/meta-window-actor-wayland.c
+@@ -24,10 +24,36 @@
+ #include "compositor/meta-window-actor-wayland.h"
+ #include "meta/meta-window-actor.h"
+ #include "wayland/meta-wayland-surface.h"
++#include "meta/meta-shadow-factory.h"
++#include "ui/frames.h"
++#include "compositor/compositor-private.h"
+ 
+ struct _MetaWindowActorWayland
+ {
+   MetaWindowActor parent;
++
++  /* copy from meta-window-actor-x11.c */
++  MetaShadow *focused_shadow;
++  MetaShadow *unfocused_shadow;
++  gboolean recompute_focused_shadow;
++  gboolean recompute_unfocused_shadow;
++
++  /* The region we should clip to when painting the shadow */
++  cairo_region_t *shadow_clip;
++  /* The frame region */
++  cairo_region_t *frame_bounds;
++  /* A region that matches the shape of the window, including frame bounds */
++  cairo_region_t *shape_region;
++
++  MetaWindowShape *shadow_shape;
++
++  gboolean need_reshape;
++
++  MetaShadowFactory *shadow_factory;
++  gulong shadow_factory_changed_handler_id;
++  gulong size_changed_id;
++  gulong repaint_scheduled_id;
++  
+ };
+ 
+ G_DEFINE_TYPE (MetaWindowActorWayland, meta_window_actor_wayland, META_TYPE_WINDOW_ACTOR)
+@@ -88,18 +114,54 @@ meta_window_actor_wayland_rebuild_surface_tree (MetaWindowActor *actor)
+                    &traverse_data);
+ }
+ 
++static void
++surface_size_changed (MetaSurfaceActor *actor,
++                      gpointer          user_data)
++{
++  MetaWindowActorWayland *actor_wayland = META_WINDOW_ACTOR_WAYLAND (user_data);
++  actor_wayland->need_reshape = TRUE;
++}
++
++static void
++surface_repaint_scheduled (MetaSurfaceActor *actor,
++                           gpointer          user_data)
++{
++  MetaWindowActorWayland *actor_wayland = META_WINDOW_ACTOR_WAYLAND (user_data);
++  MetaWindow *window = meta_window_actor_get_meta_window (META_WINDOW_ACTOR(actor_wayland));
++  meta_compositor_update_blur_behind( meta_display_get_compositor (window->display));
++}
++
++
+ static void
+ meta_window_actor_wayland_assign_surface_actor (MetaWindowActor  *actor,
+                                                 MetaSurfaceActor *surface_actor)
+ {
+   MetaWindowActorClass *parent_class =
+     META_WINDOW_ACTOR_CLASS (meta_window_actor_wayland_parent_class);
++  MetaSurfaceActor *prev_surface_actor;
++  MetaWindowActorWayland *actor_wayland = META_WINDOW_ACTOR_WAYLAND (actor);
++
+ 
+   g_warn_if_fail (!meta_window_actor_get_surface (actor));
+ 
++  prev_surface_actor = meta_window_actor_get_surface (actor);
++  if (prev_surface_actor)
++    g_clear_signal_handler (&META_WINDOW_ACTOR_WAYLAND (actor)->size_changed_id,
++                            prev_surface_actor);
++
+   parent_class->assign_surface_actor (actor, surface_actor);
+ 
+   meta_window_actor_wayland_rebuild_surface_tree (actor);
++
++  actor_wayland->size_changed_id =
++    g_signal_connect (surface_actor, "size-changed",
++                      G_CALLBACK (surface_size_changed),
++                      actor_wayland);
++
++  actor_wayland->repaint_scheduled_id = 
++    g_signal_connect (surface_actor, "repaint-scheduled",
++                      G_CALLBACK (surface_repaint_scheduled),
++                      actor_wayland);
+ }
+ 
+ static void
+@@ -115,10 +177,287 @@ meta_window_actor_wayland_queue_frame_drawn (MetaWindowActor *actor,
+ {
+ }
+ 
++static const char *
++get_shadow_class (MetaWindowActorWayland *actor_x11)
++{
++  MetaWindow *window =
++    meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_x11));
++  MetaWindowType window_type;
++
++  window_type = meta_window_get_window_type (window);
++  switch (window_type)
++    {
++    case META_WINDOW_DROPDOWN_MENU:
++    case META_WINDOW_COMBO:
++      return "dropdown-menu";
++    case META_WINDOW_POPUP_MENU:
++      return "popup-menu";
++    default:
++      {
++        MetaFrameType frame_type;
++
++        frame_type = meta_window_get_frame_type (window);
++        return meta_frame_type_to_string (frame_type);
++      }
++    }
++}
++
++static void
++invalidate_shadow (MetaWindowActorWayland *actor_wayland)
++{
++  actor_wayland->recompute_focused_shadow = TRUE;
++  actor_wayland->recompute_unfocused_shadow = TRUE;
++
++  if (meta_window_actor_is_frozen (META_WINDOW_ACTOR (actor_wayland)))
++    return;
++
++  clutter_actor_queue_redraw (CLUTTER_ACTOR (actor_wayland));
++  clutter_actor_invalidate_paint_volume (CLUTTER_ACTOR (actor_wayland));
++}
++
++static void
++update_shape_region (MetaWindowActorWayland *actor_wayland)
++{
++  MetaWindow *window =
++    meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_wayland));
++  cairo_region_t *region = NULL;
++  cairo_rectangle_int_t client_area;
++
++  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_wayland)) && !window->frame)
++    {
++      meta_window_actor_get_corner_rect(META_WINDOW_ACTOR(actor_wayland), &client_area);
++      region = cairo_region_create_rectangle(&client_area);  
++    }
++  else
++    {
++      return;
++    }
++  
++  g_clear_pointer (&actor_wayland->shape_region, cairo_region_destroy);
++  actor_wayland->shape_region = region;
++
++  g_clear_pointer (&actor_wayland->shadow_shape, meta_window_shape_unref);
++
++  invalidate_shadow (actor_wayland);
++}
++
++static cairo_region_t *
++meta_window_get_clipped_frame_bounds(MetaWindow *window)
++{
++  g_return_val_if_fail(window, NULL);
++
++  MetaWindowActor *actor = meta_window_actor_from_window(window);
++  if (actor && !window->frame_bounds)
++  {
++    MetaRectangle rect;
++    meta_window_actor_get_corner_rect(actor, &rect);
++    window->frame_bounds = 
++      meta_ui_frame_get_bounds_clipped(&rect,
++                                       meta_prefs_get_round_corner_radius());
++  }
++  return window->frame_bounds;
++}
++
++static void
++update_frame_bounds (MetaWindowActorWayland *actor_wayland)
++{
++  MetaWindow *window =
++    meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_wayland));
++
++  g_clear_pointer (&actor_wayland->frame_bounds, cairo_region_destroy);
++  
++  if (meta_window_actor_should_clip(META_WINDOW_ACTOR(actor_wayland)))
++    actor_wayland->frame_bounds =
++      cairo_region_copy(meta_window_get_clipped_frame_bounds(window));
++}
++
++static void
++get_shape_bounds (MetaWindowActorWayland    *actor_wayland,
++                  cairo_rectangle_int_t     *bounds)
++{
++  cairo_region_get_extents (actor_wayland->shape_region, bounds);
++}
++
++static void
++check_needs_shadow (MetaWindowActorWayland *actor_wayland)
++{
++  MetaWindow *window =
++    meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_wayland));
++  MetaShadow *old_shadow = NULL;
++  MetaShadow **shadow_location;
++  gboolean recompute_shadow;
++  gboolean should_have_shadow;
++  gboolean appears_focused;
++
++  should_have_shadow = 
++    meta_window_actor_should_clip (META_WINDOW_ACTOR (actor_wayland));
++  appears_focused = meta_window_appears_focused (window);
++
++  if (appears_focused)
++    {
++      recompute_shadow = actor_wayland->recompute_focused_shadow;
++      actor_wayland->recompute_focused_shadow = FALSE;
++      shadow_location = &actor_wayland->focused_shadow;
++    }
++  else
++    {
++      recompute_shadow = actor_wayland->recompute_unfocused_shadow;
++      actor_wayland->recompute_unfocused_shadow = FALSE;
++      shadow_location = &actor_wayland->unfocused_shadow;
++    }
++
++  if (!should_have_shadow || recompute_shadow)
++    {
++      if (*shadow_location != NULL)
++        {
++          old_shadow = *shadow_location;
++          *shadow_location = NULL;
++        }
++    }
++
++  if (!*shadow_location && should_have_shadow)
++    {
++      MetaShadowFactory *factory = actor_wayland->shadow_factory;
++      const char *shadow_class = get_shadow_class (actor_wayland);
++      cairo_rectangle_int_t shape_bounds;
++
++      if (!actor_wayland->shadow_shape)
++        {
++          actor_wayland->shadow_shape =
++            meta_window_shape_new (actor_wayland->shape_region);
++        }
++
++      get_shape_bounds (actor_wayland, &shape_bounds);
++      *shadow_location =
++        meta_shadow_factory_get_shadow (factory,
++                                        actor_wayland->shadow_shape,
++                                        shape_bounds.width, shape_bounds.height,
++                                        shadow_class, appears_focused);
++    }
++
++  if (old_shadow)
++    meta_shadow_unref (old_shadow);
++}
++
++static void
++get_shadow_params (MetaWindowActorWayland *actor_wayland,
++                   gboolean                appears_focused,
++                   MetaShadowParams       *params)
++{
++  const char *shadow_class = get_shadow_class (actor_wayland);
++
++  meta_shadow_factory_get_params (actor_wayland->shadow_factory,
++                                  shadow_class, appears_focused,
++                                  params);
++}
++
++static gboolean
++clip_shadow_under_window (MetaWindowActorWayland *actor_wayland)
++{
++  return TRUE;
++}
++
+ static void
+ meta_window_actor_wayland_before_paint (MetaWindowActor  *actor,
+                                         ClutterStageView *stage_view)
+ {
++  MetaWindowActorWayland *actor_wayland = META_WINDOW_ACTOR_WAYLAND (actor);
++
++  if (meta_window_actor_should_clip (actor))
++    {
++      update_frame_bounds (actor_wayland);
++      if (actor_wayland->need_reshape)
++      {
++        update_shape_region (actor_wayland);
++        actor_wayland->need_reshape = FALSE;
++      }
++      check_needs_shadow (actor_wayland);
++    }
++}
++
++static void
++get_shadow_bounds (MetaWindowActorWayland    *actor_x11,
++                   gboolean                   appears_focused,
++                   cairo_rectangle_int_t     *bounds)
++{
++  MetaShadow *shadow;
++  cairo_rectangle_int_t shape_bounds;
++  MetaShadowParams params;
++
++  shadow = appears_focused ? actor_x11->focused_shadow
++                           : actor_x11->unfocused_shadow;
++
++  get_shape_bounds (actor_x11, &shape_bounds);
++  get_shadow_params (actor_x11, appears_focused, &params);
++
++  meta_shadow_get_bounds (shadow,
++                          params.x_offset + shape_bounds.x,
++                          params.y_offset + shape_bounds.y,
++                          shape_bounds.width,
++                          shape_bounds.height,
++                          bounds);
++}
++
++/* Copy from ./meta-window-actor-x11.c
++ * to draw shadows for rounded wayland clients
++ * because oragin shadows has been cutted out
++ */
++static void
++meta_window_actor_wayland_paint (ClutterActor        *actor,
++                                 ClutterPaintContext *paint_context)
++{
++  MetaWindowActorWayland *actor_wayland = META_WINDOW_ACTOR_WAYLAND (actor);
++  MetaWindow *window;
++  gboolean appears_focused;
++  MetaShadow *shadow;
++
++  window = meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_wayland));
++  appears_focused = meta_window_appears_focused (window);
++  shadow = appears_focused ? actor_wayland->focused_shadow
++                           : actor_wayland->unfocused_shadow;
++
++  if (shadow && meta_window_actor_should_clip (META_WINDOW_ACTOR (actor_wayland)))
++    {
++      MetaShadowParams params;
++      cairo_rectangle_int_t shape_bounds;
++      cairo_region_t *clip = actor_wayland->shadow_clip;
++      CoglFramebuffer *framebuffer;
++
++      meta_window_actor_get_corner_rect(META_WINDOW_ACTOR(actor_wayland), &shape_bounds);
++      get_shadow_params (actor_wayland, appears_focused, &params);
++
++      /* The frame bounds are already subtracted from actor_wayland->shadow_clip
++       * if that exists.
++       */
++      if (!clip && clip_shadow_under_window (actor_wayland))
++        {
++          cairo_rectangle_int_t bounds;
++
++          get_shadow_bounds (actor_wayland, appears_focused, &bounds);
++          clip = cairo_region_create_rectangle (&bounds);
++
++          if (actor_wayland->frame_bounds)
++            cairo_region_subtract (clip, actor_wayland->frame_bounds);
++        }
++
++      framebuffer = clutter_paint_context_get_framebuffer (paint_context);
++      meta_shadow_paint (shadow,
++                         framebuffer,
++                         params.x_offset + shape_bounds.x,
++                         params.y_offset + shape_bounds.y,
++                         shape_bounds.width,
++                         shape_bounds.height,
++                         (clutter_actor_get_paint_opacity (actor) *
++                          params.opacity * window->opacity) / (255 * 255),
++                         clip,
++                         clip_shadow_under_window (actor_wayland));
++
++      if (clip && clip != actor_wayland->shadow_clip)
++        cairo_region_destroy (clip);
++    }
++
++  CLUTTER_ACTOR_CLASS (meta_window_actor_wayland_parent_class)->paint (actor,
++                                                                       paint_context);
+ }
+ 
+ static void
+@@ -149,15 +488,34 @@ meta_window_actor_wayland_can_freeze_commits (MetaWindowActor *actor)
+   return FALSE;
+ }
+ 
++static void
++meta_window_actor_wayland_constructed (GObject *object)
++{
++  MetaWindowActorWayland *actor_wayland = META_WINDOW_ACTOR_WAYLAND (object);
++
++  /*
++   * Start off with an empty shape region to maintain the invariant that it's
++   * always set.
++   */
++  actor_wayland->shape_region = cairo_region_create ();
++
++  G_OBJECT_CLASS (meta_window_actor_wayland_parent_class)->constructed (object);
++}
++
+ static void
+ meta_window_actor_wayland_dispose (GObject *object)
+ {
+   MetaWindowActor *window_actor = META_WINDOW_ACTOR (object);
++  MetaWindowActorWayland *actor_wayland = META_WINDOW_ACTOR_WAYLAND (object);
++
+   MetaSurfaceActor *surface_actor =
+     meta_window_actor_get_surface (window_actor);
+   GList *children;
+   GList *l;
+ 
++  g_clear_signal_handler (&actor_wayland->size_changed_id, surface_actor);
++  g_clear_signal_handler (&actor_wayland->repaint_scheduled_id, surface_actor);
++
+   children = clutter_actor_get_children (CLUTTER_ACTOR (window_actor));
+   for (l = children; l; l = l->next)
+     {
+@@ -167,7 +525,17 @@ meta_window_actor_wayland_dispose (GObject *object)
+           child_actor != CLUTTER_ACTOR (surface_actor))
+         clutter_actor_remove_child (CLUTTER_ACTOR (window_actor), child_actor);
+     }
++  
++  g_clear_pointer (&actor_wayland->shape_region, cairo_region_destroy);
++  g_clear_pointer (&actor_wayland->shadow_clip, cairo_region_destroy);
++  g_clear_pointer (&actor_wayland->frame_bounds, cairo_region_destroy);
++
++  g_clear_pointer (&actor_wayland->focused_shadow, meta_shadow_unref);
++  g_clear_pointer (&actor_wayland->unfocused_shadow, meta_shadow_unref);
++  g_clear_pointer (&actor_wayland->shadow_shape, meta_window_shape_unref);
+ 
++  g_clear_signal_handler (&actor_wayland->shadow_factory_changed_handler_id,
++                          actor_wayland->shadow_factory);
+   G_OBJECT_CLASS (meta_window_actor_wayland_parent_class)->dispose (object);
+ }
+ 
+@@ -175,6 +543,7 @@ static void
+ meta_window_actor_wayland_class_init (MetaWindowActorWaylandClass *klass)
+ {
+   MetaWindowActorClass *window_actor_class = META_WINDOW_ACTOR_CLASS (klass);
++  ClutterActorClass *actor_class = CLUTTER_ACTOR_CLASS (klass);
+   GObjectClass *object_class = G_OBJECT_CLASS (klass);
+ 
+   window_actor_class->assign_surface_actor = meta_window_actor_wayland_assign_surface_actor;
+@@ -187,10 +556,19 @@ meta_window_actor_wayland_class_init (MetaWindowActorWaylandClass *klass)
+   window_actor_class->update_regions = meta_window_actor_wayland_update_regions;
+   window_actor_class->can_freeze_commits = meta_window_actor_wayland_can_freeze_commits;
+ 
++  actor_class->paint = meta_window_actor_wayland_paint;
++
++  object_class->constructed = meta_window_actor_wayland_constructed;
+   object_class->dispose = meta_window_actor_wayland_dispose;
+ }
+ 
+ static void
+ meta_window_actor_wayland_init (MetaWindowActorWayland *self)
+ {
++  self->shadow_factory = meta_shadow_factory_get_default ();
++  self->shadow_factory_changed_handler_id =
++    g_signal_connect_swapped (self->shadow_factory,
++                              "changed",
++                              G_CALLBACK (invalidate_shadow),
++                              self);
+ }
 diff --git a/src/compositor/meta-window-actor-x11.c b/src/compositor/meta-window-actor-x11.c
 index e4769e087..60d376858 100644
 --- a/src/compositor/meta-window-actor-x11.c
@@ -385,7 +851,7 @@ index e4769e087..60d376858 100644
  
        /* The frame bounds are already subtracted from actor_x11->shadow_clip
 diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
-index d4fc9a43a..e0d1d7a78 100644
+index d4fc9a43a..f4eb9ae37 100644
 --- a/src/compositor/meta-window-actor.c
 +++ b/src/compositor/meta-window-actor.c
 @@ -41,6 +41,9 @@
@@ -398,7 +864,7 @@ index d4fc9a43a..e0d1d7a78 100644
  typedef enum
  {
    INITIALLY_FROZEN,
-@@ -55,6 +58,13 @@ typedef struct _MetaWindowActorPrivate
+@@ -55,6 +58,15 @@ typedef struct _MetaWindowActorPrivate
  
    MetaSurfaceActor *surface;
  
@@ -409,10 +875,12 @@ index d4fc9a43a..e0d1d7a78 100644
 +  ClutterActor *blur_actor;
 +  MetaShellBlurEffect *blur_effect;
 +
++  ulong visible_changed_id;
++  ulong wm_class_changed_id;
    int geometry_scale;
  
    /*
-@@ -119,6 +129,235 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE (MetaWindowActor, meta_window_actor, CLUTTER_TY
+@@ -119,6 +131,245 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE (MetaWindowActor, meta_window_actor, CLUTTER_TY
                                    G_IMPLEMENT_INTERFACE (META_TYPE_CULLABLE, cullable_iface_init)
                                    G_IMPLEMENT_INTERFACE (META_TYPE_SCREEN_CAST_WINDOW, screen_cast_window_iface_init));
  
@@ -456,11 +924,11 @@ index d4fc9a43a..e0d1d7a78 100644
 +  else
 +   {
 +      clutter_actor_set_position (priv->blur_actor,
-+                                  frame_rect.x + priv->clip_padding[0] - 2,
-+                                  frame_rect.y + priv->clip_padding[2] - 2);
++                                  frame_rect.x + priv->clip_padding[0] - 1,
++                                  frame_rect.y + priv->clip_padding[2] - 1);
 +      clutter_actor_set_size (priv->blur_actor,
-+                              frame_rect.width - priv->clip_padding[0] - priv->clip_padding[1] + 3,
-+                              frame_rect.height - priv->clip_padding[2] - priv->clip_padding[3] + 3);
++                              frame_rect.width - priv->clip_padding[0] - priv->clip_padding[1] + 1,
++                              frame_rect.height - priv->clip_padding[2] - priv->clip_padding[3] + 1);
 +      meta_shell_blur_effect_set_skip (priv->blur_effect, false);
 +   }
 +}
@@ -496,6 +964,15 @@ index d4fc9a43a..e0d1d7a78 100644
 +  }
 +}
 +
++
++/*
++ * in wayland, `res-name` property of MetaWindow is empty when MetaWindow
++ * has been added to MetaWindowActor. So we have to create create blur actor
++ * in on_wm_class_changed callback.
++ * 
++ * in xorg, `res-name` property of MetaWindow has been setted when MetaWindow,
++ * so we can create blur actor when window actor be created.
++ */
 +void
 +meta_window_actor_create_blur_actor (MetaWindowActor *self)
 +{
@@ -521,7 +998,8 @@ index d4fc9a43a..e0d1d7a78 100644
 +
 +  ClutterActor *parent = clutter_actor_get_parent (CLUTTER_ACTOR(self));
 +  clutter_actor_insert_child_below (parent, priv->blur_actor, CLUTTER_ACTOR(self));
-+  meta_window_set_opacity(priv->window, meta_prefs_get_blur_window_opacity());
++  int opa = meta_prefs_get_blur_window_opacity();
++  meta_window_set_opacity(priv->window, opa);
 +}
 +
 +static void
@@ -582,7 +1060,7 @@ index d4fc9a43a..e0d1d7a78 100644
 +  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
 +  MetaWindow *window = priv->window;
 +
-+  if (meta_window_get_client_type(window) == META_WINDOW_CLIENT_TYPE_WAYLAND ||
++  if (/* meta_window_get_client_type(window) == META_WINDOW_CLIENT_TYPE_WAYLAND || */
 +      meta_prefs_in_black_list(window->res_name))
 +    {
 +      return FALSE;
@@ -648,7 +1126,7 @@ index d4fc9a43a..e0d1d7a78 100644
  static void
  meta_window_actor_class_init (MetaWindowActorClass *klass)
  {
-@@ -216,6 +455,11 @@ meta_window_actor_init (MetaWindowActor *self)
+@@ -216,6 +467,11 @@ meta_window_actor_init (MetaWindowActor *self)
      meta_window_actor_get_instance_private (self);
  
    priv->geometry_scale = 1;
@@ -660,7 +1138,19 @@ index d4fc9a43a..e0d1d7a78 100644
  }
  
  static void
-@@ -399,6 +643,20 @@ init_surface_actor (MetaWindowActor *self)
+@@ -368,6 +624,11 @@ meta_window_actor_real_assign_surface_actor (MetaWindowActor  *self,
+     meta_window_actor_set_frozen (self, TRUE);
+   else
+     meta_window_actor_sync_thawed_state (self);
++
++  if (priv->blur_actor)
++    {
++      meta_window_actor_update_opacity (self);
++    }
+ }
+ 
+ void
+@@ -399,6 +660,31 @@ init_surface_actor (MetaWindowActor *self)
      meta_window_actor_assign_surface_actor (self, surface_actor);
  }
  
@@ -678,19 +1168,53 @@ index d4fc9a43a..e0d1d7a78 100644
 +    clutter_actor_hide(priv->blur_actor);
 +}
 +
++static void
++on_wm_class_changed (MetaWindow *self,
++                     gpointer    user_data)
++{
++  MetaWindowActor *actor = meta_window_actor_from_window (self);
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (actor);
++
++  meta_window_actor_create_blur_actor(actor);
++  g_clear_signal_handler(&priv->wm_class_changed_id, self);
++}
++
  static void
  meta_window_actor_constructed (GObject *object)
  {
-@@ -424,6 +682,8 @@ meta_window_actor_constructed (GObject *object)
+@@ -406,6 +692,7 @@ meta_window_actor_constructed (GObject *object)
+   MetaWindowActorPrivate *priv =
+     meta_window_actor_get_instance_private (self);
+   MetaWindow *window = priv->window;
++  MetaWindowClientType type = meta_window_get_client_type (window);
+ 
+   priv->compositor = window->display->compositor;
+ 
+@@ -424,6 +711,15 @@ meta_window_actor_constructed (GObject *object)
      priv->first_frame_state = DRAWING_FIRST_FRAME;
  
    meta_window_actor_sync_actor_geometry (self, priv->window->placed);
 +
-+  g_signal_connect (object, "notify::visible", G_CALLBACK (on_visible_changed), object);
++  priv->visible_changed_id = 
++    g_signal_connect (object, "notify::visible", G_CALLBACK (on_visible_changed), NULL);
++
++  if (type == META_WINDOW_CLIENT_TYPE_WAYLAND)
++  {
++    priv->wm_class_changed_id =
++      g_signal_connect (window, "notify::wm-class", G_CALLBACK (on_wm_class_changed), object);
++  }
  }
  
  static void
-@@ -470,6 +730,7 @@ meta_window_actor_set_property (GObject      *object,
+@@ -442,6 +738,7 @@ meta_window_actor_dispose (GObject *object)
+ 
+   priv->disposed = TRUE;
+ 
++  g_clear_signal_handler(&priv->visible_changed_id, object);
+   meta_compositor_remove_window_actor (compositor, self);
+ 
+   g_clear_object (&priv->window);
+@@ -470,6 +767,7 @@ meta_window_actor_set_property (GObject      *object,
      {
      case PROP_META_WINDOW:
        priv->window = g_value_dup_object (value);
@@ -698,11 +1222,11 @@ index d4fc9a43a..e0d1d7a78 100644
        g_signal_connect_object (priv->window, "notify::appears-focused",
                                 G_CALLBACK (window_appears_focused_notify), self, 0);
        break;
-@@ -662,6 +923,20 @@ start_simple_effect (MetaWindowActor  *self,
+@@ -662,6 +960,20 @@ start_simple_effect (MetaWindowActor  *self,
    return TRUE;
  }
  
-+void
++static void
 +meta_window_actor_remove_blur (MetaWindowActor *self)
 +{
 +  MetaWindowActorPrivate *priv =
@@ -719,22 +1243,20 @@ index d4fc9a43a..e0d1d7a78 100644
  static void
  meta_window_actor_after_effects (MetaWindowActor *self)
  {
-@@ -675,7 +950,13 @@ meta_window_actor_after_effects (MetaWindowActor *self)
+@@ -675,6 +987,12 @@ meta_window_actor_after_effects (MetaWindowActor *self)
  
    if (priv->needs_destroy)
      {
--      clutter_actor_destroy (CLUTTER_ACTOR (self));
 +      if (priv->round_clip_effect)
 +        {
 +          clutter_actor_remove_effect (CLUTTER_ACTOR(self),
 +                                       CLUTTER_EFFECT(priv->round_clip_effect));
 +          meta_window_actor_remove_blur(self);
-+          clutter_actor_destroy (CLUTTER_ACTOR (self));
 +        }
+       clutter_actor_destroy (CLUTTER_ACTOR (self));
      }
    else
-     {
-@@ -803,6 +1084,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
+@@ -803,6 +1121,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
      clutter_actor_destroy (CLUTTER_ACTOR (self));
  }
  

@@ -1,16 +1,48 @@
-A window manager for GNOME, with rounded corners patch.Tested in gnome-shell 40.5, just works in xorg session. 
+Tested in gnome-shell 40.5, should works in gnome 40 and 41.
 
-for  arch based distro user, just install `mutter-rounded` by AUR helper. 
+integrate the blur effects with rounded corners.The source code can be found [here](https://github.com/yilozt/mutter).
 
-# ScreenShot
+__Issues__:
 
-![](https://s3.bmp.ovh/imgs/2021/10/3297a02a2c16113f.png)
+- It can be buggy with blur effect. see [https://github.com/aunetx/blur-my-shell](https://github.com/aunetx/blur-my-shell). If you are using intel driver in Xorg session, try create `.drirc` in your home directory to disable Vertical Synchronization: 
+  ```
+  <device screen="0" driver="dri2">
+      <application name="Default">
+          <option name="vblank_mode" value="0"/>
+      </application>
+  </device>
+  ```
 
-![599HWn.png](https://z3.ax1x.com/2021/10/07/599HWn.png)
+- The original shadows of rounded windows has been cutted out, now use `MetaShadowFactroy` to draw shadows for rounded windows. So the animation effect of shadows in some themes has gone. 
+
+# Install
+
+## Arch Linux
+
+install `mutter-rounded` by AUR helper:
+
+```
+yay -S mutter-rounded
+```
+
+
+# Screenshots
+
+![](screenshots/screenshots1.jpg)
 
 # Settings
 
-![](https://s3.bmp.ovh/imgs/2021/09/47cc305d9f18342e.png)
+The settings of mutter have driven by GSettings, so you can set config by:
 
+- via `gsettings`:
+  ```
+  $ gsettings get org.gnome.mutter round-corners-radius 
+  14
+  $ gsettings set org.gnome.mutter round-corners-radius 8
+  ```
 
+- via `dconf-editor`, the settings are located in `/org/gnome/mutter`:
+  ![](screenshots/dconf-editor.png)
 
+- via [mutter_setting](https://gitlab.gnome.org/lluo/mutter-rounded-setting), a simple gui written by Gjs.
+  ![](screenshots/mutter_setting.png)

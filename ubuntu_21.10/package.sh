@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# The source of blur effect. You can replace with:
+#   - https://gitee.com/mirrors_GNOME/gnome-shell/raw
+#   - https://gitlab.gnome.org/GNOME/gnome-shell/-/raw
+blur_effect_url="https://gitlab.gnome.org/GNOME/gnome-shell/-/raw"
+
 dir="$(cd $(dirname $0); pwd)"
 aur="${dir}/../aur"
 cd "${dir}"
@@ -21,10 +26,8 @@ ${SUDO} apt build-dep -y mutter
 # download the source code
 [ -d mutter-40.5 ] && rm -rf mutter-40.5
 pull-lp-source mutter impish
-#wget -nc https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/40.5/src/shell-blur-effect.c
-#wget -nc https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/40.5/src/shell-blur-effect.h
-wget -nc https://gitee.com/mirrors_GNOME/gnome-shell/raw/40.5/src/shell-blur-effect.c
-wget -nc https://gitee.com/mirrors_GNOME/gnome-shell/raw/40.5/src/shell-blur-effect.h
+wget -nc ${blur_effect_url}/40.5/src/shell-blur-effect.c
+wget -nc ${blur_effect_url}/40.5/src/shell-blur-effect.h
 
 # patch the code
 cp shell*.[ch] mutter-40.5/src

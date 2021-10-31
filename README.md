@@ -25,6 +25,18 @@ install `mutter-rounded` by AUR helper:
 yay -S mutter-rounded
 ```
 
+## Ubuntu 21.10
+
+There is a simple script to help you build the packages in ubuntu 21.10. It's neccesary to check the content of script. Before you build the packages, the `Source code` checkbox in `Software & Updates` should be enabled:
+
+![](screenshots/ubuntu_settings.png)
+
+```
+git clone https://github.com/yilozt/mutter-rounded
+cd ./mutter-rounded/ubuntu_21.10
+./package.sh
+sudo dpkg -i *.deb
+```
 
 # Screenshots
 

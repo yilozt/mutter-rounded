@@ -21,8 +21,10 @@ ${SUDO} apt build-dep -y mutter
 # download the source code
 [ -d mutter-40.5 ] && rm -rf mutter-40.5
 pull-lp-source mutter impish
-wget -nc https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/40.5/src/shell-blur-effect.c
-wget -nc https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/40.5/src/shell-blur-effect.h
+#wget -nc https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/40.5/src/shell-blur-effect.c
+#wget -nc https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/40.5/src/shell-blur-effect.h
+wget -nc https://gitee.com/mirrors_GNOME/gnome-shell/raw/40.5/src/shell-blur-effect.c
+wget -nc https://gitee.com/mirrors_GNOME/gnome-shell/raw/40.5/src/shell-blur-effect.h
 
 # patch the code
 cp shell*.[ch] mutter-40.5/src
@@ -36,6 +38,7 @@ patch -p1 < "${dir}"/symbols.patch
 dpkg-source --commit . rounded_corners
 
 # build packages
-dpkg-buildpackage -B
+debuild
 
+cd ../
 mv *.deb ../

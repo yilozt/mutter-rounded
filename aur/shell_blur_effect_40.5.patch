@@ -1,6 +1,6 @@
 diff -Narup a/src/shell-blur-effect.c b/src/shell-blur-effect.c
---- a/src/shell-blur-effect.c	2021-10-28 21:09:19.663157558 +0800
-+++ b/src/shell-blur-effect.c	2021-10-28 21:09:19.663157558 +0800
+--- a/src/shell-blur-effect.c	2021-11-06 14:09:18.864228559 +0800
++++ b/src/shell-blur-effect.c	2021-11-06 14:09:18.864228559 +0800
 @@ -22,6 +22,9 @@
  
  #include "shell-enum-types.h"
@@ -426,8 +426,8 @@ diff -Narup a/src/shell-blur-effect.c b/src/shell-blur-effect.c
 +    clutter_effect_queue_repaint (CLUTTER_EFFECT (self));
 +}
 diff -Narup a/src/shell-blur-effect.h b/src/shell-blur-effect.h
---- a/src/shell-blur-effect.h	2021-10-28 21:09:19.663157558 +0800
-+++ b/src/shell-blur-effect.h	2021-10-28 21:09:19.663157558 +0800
+--- a/src/shell-blur-effect.h	2021-11-06 14:09:18.864228559 +0800
++++ b/src/shell-blur-effect.h	2021-11-06 14:09:18.864228559 +0800
 @@ -20,6 +20,10 @@
  
  #pragma once

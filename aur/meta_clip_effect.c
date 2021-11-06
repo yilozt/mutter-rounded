@@ -35,6 +35,26 @@ meta_clip_effect_set_actor(ClutterActorMeta *meta,
   priv->actor = clutter_actor_meta_get_actor(meta);
 }
 
+static gboolean
+meta_clip_effect_pre_paint (ClutterEffect *effect,
+                            ClutterPaintNode *node,
+                            ClutterPaintContext *paint_context)
+{
+  gboolean res = 
+    CLUTTER_EFFECT_CLASS (meta_clip_effect_parent_class)->pre_paint(effect, node, paint_context);
+  MetaClipEffect *clip_effect = META_CLIP_EFFECT (effect);
+  MetaClipEffectPrivate *priv = 
+    meta_clip_effect_get_instance_private(META_CLIP_EFFECT(clip_effect));
+  
+  // seems CutterOffscreenEffect will set COGL_PIPELINE_FILTER_NEAREST
+  // as layer filter, force set linear filter before paint now
+  cogl_pipeline_set_layer_filters (priv->pipeline,
+                                   0,
+                                   COGL_PIPELINE_FILTER_LINEAR,
+                                   COGL_PIPELINE_FILTER_LINEAR);
+  return res;
+}
+
 static void
 meta_clip_effect_dispose(GObject *gobject)
 {
@@ -54,10 +74,12 @@ static void
 meta_clip_effect_class_init(MetaClipEffectClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  ClutterEffectClass *effect_class = CLUTTER_EFFECT_CLASS (klass);
   ClutterOffscreenEffectClass *offscreen_class = CLUTTER_OFFSCREEN_EFFECT_CLASS (klass);
   ClutterActorMetaClass *meta_class = CLUTTER_ACTOR_META_CLASS(klass);
 
   meta_class->set_actor = meta_clip_effect_set_actor;
+  effect_class->pre_paint = meta_clip_effect_pre_paint;
   offscreen_class->create_pipeline = meta_clip_effect_class_create_pipeline;
   gobject_class->dispose = meta_clip_effect_dispose;
 }

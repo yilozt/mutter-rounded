@@ -23,6 +23,7 @@ cd workspace
 
 # 1. Download the source rpm
 ${SUDO} dnf download mutter --source
+${SUDO} dnf builddep mutter
 ${SUDO} dnf install fedora-packager
 rpmdev-setuptree
 rpm -ivh mutter*.rpm

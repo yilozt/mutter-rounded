@@ -14,6 +14,8 @@ if [ "$(whoami)" = "root" ]; then
   SUDO=""
 fi
 
+export LANG=en_US.UTF-8
+
 mkdir -p workspace
 cd workspace
 

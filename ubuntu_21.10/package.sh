@@ -45,7 +45,9 @@ run patch -p1 < "${dir}"/symbols.patch
 run dpkg-source --commit . rounded_corners
 
 # build packages
-run debuild
+run _ignore_ debuild
 
 run cd ../
 run mv *.deb ../
+
+echo $(green "build finish, you can find packages at: $dir")

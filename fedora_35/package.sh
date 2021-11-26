@@ -67,3 +67,6 @@ run sed -i \
 
 # 5. build packages
 run rpmbuild -ba "${topdir}/SPECS/mutter.spec"
+
+echo $(green "build finish, you can find packages at:$topdir/RPMS/x86_64" )
+

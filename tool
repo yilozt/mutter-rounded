@@ -9,11 +9,16 @@ function green() {
 }
 
 function run() {
+  ignore=$1
+  if [ "$ignore" == "_ignore_" ]; then
+    shift
+  fi
+   
   echo "$(green [run]) $@"
   "$@"
   local errcode="$?"
-  if [ "$errcode" != "0" ]; then
+  if [[ "$errcode" != "0" && "$ignore" != "_ignore_" ]]; then
     echo "$(red [err: $errcode]) $@"
     exit 1
-  fi 
+  fi
 }

@@ -76,5 +76,5 @@ The settings of mutter have driven by GSettings, so you can set config by:
 - via `dconf-editor`, the settings are located in `/org/gnome/mutter`:
   ![](screenshots/dconf-editor.png)
 
-- via [mutter_setting](https://gitlab.gnome.org/lluo/mutter-rounded-setting), a simple gui written by Gjs.
+- via [mutter_setting](https://github.com/yilozt/mutter-rounded-setting), a simple gui written by Gjs.
   ![](screenshots/mutter_setting.png)

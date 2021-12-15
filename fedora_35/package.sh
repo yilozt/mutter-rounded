@@ -25,19 +25,22 @@ cd workspace
 export LANG=en_US.UTF-8
 
 # 1. Download the source rpm
+run rm -rf mutter*
 run ${SUDO} dnf download mutter --source
 run ${SUDO} dnf builddep mutter
 run ${SUDO} dnf install fedora-packager
 run rpmdev-setuptree
 run rpm -ivh mutter*.rpm
 
-# 2. generate patch for build
-[ -d mutter-41.1 ] && run rm -rf mutter-41.1
-run tar -xvf ${topdir}/SOURCES/mutter-41.1.tar.xz
-run wget -nc ${blur_effect_url}/41.1/src/shell-blur-effect.c
-run wget -nc ${blur_effect_url}/41.1/src/shell-blur-effect.h
+# Query version of packages
+pkgver=$(rpm -q ./mutter*rpm|cut -d '-' -f 2)
 
-run cd mutter-41.1
+# 2. generate patch for build
+run tar -xvf ${topdir}/SOURCES/mutter-${pkgver}.tar.xz
+run wget -nc ${blur_effect_url}/${pkgver}/src/shell-blur-effect.c
+run wget -nc ${blur_effect_url}/${pkgver}/src/shell-blur-effect.h
+
+run cd mutter-${pkgver}
 run git init
 run git config user.name "your name"
 run git config user.email "email@example.com"

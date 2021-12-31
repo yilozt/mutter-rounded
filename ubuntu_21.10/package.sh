@@ -40,6 +40,7 @@ run cd mutter-40.5/
 run patch -p1 < "${aur}"/rounded_corners_40.5.patch
 run patch -p1 < "${aur}"/shell_blur_effect_40.5.patch
 run patch -p1 < "${dir}"/symbols.patch
+run patch -p1 < "${dir}"/colors.diff
 
 # commit changes
 run dpkg-source --commit . rounded_corners

@@ -128,6 +128,7 @@ meta_clip_effect_set_bounds(MetaClipEffect        *effect,
   g_return_if_fail(priv->pipeline && priv->actor);
   float radius = meta_prefs_get_round_corner_radius();
   float border = meta_prefs_get_border_width();
+  float brightness = meta_prefs_get_border_brightness();
 
   priv->bounds.x = _bounds->x + padding[0];
   priv->bounds.y = _bounds->y + padding[2];
@@ -160,6 +161,8 @@ meta_clip_effect_set_bounds(MetaClipEffect        *effect,
     cogl_pipeline_get_uniform_location(priv->pipeline, "pixel_step");
   int location_border_width =
     cogl_pipeline_get_uniform_location(priv->pipeline, "border_width");
+  int location_border_brightness =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "border_brightness");
 
 
   float bounds[] = { x1, y1, x2, y2 };
@@ -215,6 +218,7 @@ meta_clip_effect_set_bounds(MetaClipEffect        *effect,
                                   2, 1, pixel_step);
   cogl_pipeline_set_uniform_1i(priv->pipeline, location_skip, 0);
   cogl_pipeline_set_uniform_1f(priv->pipeline, location_border_width, border);
+  cogl_pipeline_set_uniform_1f(priv->pipeline, location_border_brightness, brightness);
 }
 
 void

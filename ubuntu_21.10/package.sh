@@ -37,8 +37,8 @@ run wget -nc ${blur_effect_url}/40.5/src/shell-blur-effect.h
 run cp shell*.[ch] mutter-40.5/src
 run cp "$aur"/*.[ch] mutter-40.5/src
 run cd mutter-40.5/
-run patch -p1 < "${aur}"/rounded_corners_40.5.patch
-run patch -p1 < "${aur}"/shell_blur_effect_40.5.patch
+run patch -p1 < "${aur}"/rounded_corners.patch
+run patch -p1 < "${aur}"/shell_blur_effect.patch
 run patch -p1 < "${dir}"/symbols.patch
 run patch -p1 < "${dir}"/colors.diff
 

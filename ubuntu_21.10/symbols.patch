@@ -1,12 +1,13 @@
 --- a/debian/libmutter-8-0.symbols
 +++ b/debian/libmutter-8-0.symbols
-@@ -394,9 +394,14 @@
+@@ -394,9 +394,15 @@
   meta_prefs_get_auto_maximize@Base 3.28.2
   meta_prefs_get_auto_raise@Base 3.28.2
   meta_prefs_get_auto_raise_delay@Base 3.28.2
 + meta_prefs_get_blur_brightness@Base 40.5-1ubuntu2
 + meta_prefs_get_blur_sigmal@Base 40.5-1ubuntu2
 + meta_prefs_get_blur_window_opacity@Base 40.5-1ubuntu2
++ meta_prefs_get_border_brightness@Base 40.5-1ubuntu2
 + meta_prefs_get_border_width@Base 40.5-1ubuntu2
   meta_prefs_get_button_layout@Base 3.28.2
   meta_prefs_get_center_new_windows@Base 3.28.2
@@ -15,7 +16,7 @@
   meta_prefs_get_cursor_size@Base 3.28.2
   meta_prefs_get_cursor_theme@Base 3.28.2
   meta_prefs_get_disable_workarounds@Base 3.28.2
-@@ -416,12 +421,15 @@
+@@ -416,12 +422,15 @@
   meta_prefs_get_mouse_button_resize@Base 3.28.2
   meta_prefs_get_num_workspaces@Base 3.28.2
   meta_prefs_get_raise_on_click@Base 3.28.2

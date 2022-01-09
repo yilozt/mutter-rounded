@@ -1,8 +1,8 @@
 diff --git a/data/org.gnome.mutter.gschema.xml.in b/data/org.gnome.mutter.gschema.xml.in
-index 23fa9f3ad..eee73e708 100644
+index 23fa9f3ad..7ad3f3f35 100644
 --- a/data/org.gnome.mutter.gschema.xml.in
 +++ b/data/org.gnome.mutter.gschema.xml.in
-@@ -2,6 +2,78 @@
+@@ -2,6 +2,84 @@
    <schema id="org.gnome.mutter" path="/org/gnome/mutter/"
            gettext-domain="@GETTEXT_DOMAIN@">
  
@@ -33,6 +33,12 @@ index 23fa9f3ad..eee73e708 100644
 +      <default>0</default>
 +      <range min="0" max="100"/>
 +      <summary>Window border</summary>
++    </key>
++
++    <key name="border-brightness" type="i">
++      <default>40</default>
++      <range min="0" max="100"/>
++      <summary>Window border brightness</summary>
 +    </key>
 +
 +    <key name="round-corners-radius" type="i">
@@ -95,10 +101,10 @@ index 580618e48..f62de1924 100644
   * This function takes a 64 bit time stamp from the monotonic clock, and clamps
   * it to the scope of the X server clock, without losing the granularity.
 diff --git a/src/compositor/compositor.c b/src/compositor/compositor.c
-index 1770550d4..552d7bb24 100644
+index 9cdd39c15..c55366fb2 100644
 --- a/src/compositor/compositor.c
 +++ b/src/compositor/compositor.c
-@@ -84,6 +84,8 @@
+@@ -85,6 +85,8 @@
  #include "wayland/meta-wayland-private.h"
  #endif
  
@@ -107,7 +113,7 @@ index 1770550d4..552d7bb24 100644
  enum
  {
    PROP_0,
-@@ -615,6 +617,10 @@ meta_compositor_add_window (MetaCompositor    *compositor,
+@@ -618,6 +620,10 @@ meta_compositor_add_window (MetaCompositor    *compositor,
     * before we first paint.
     */
    priv->windows = g_list_append (priv->windows, window_actor);
@@ -118,7 +124,7 @@ index 1770550d4..552d7bb24 100644
    sync_actor_stacking (compositor);
  }
  
-@@ -661,6 +667,7 @@ meta_compositor_queue_frame_drawn (MetaCompositor *compositor,
+@@ -664,6 +670,7 @@ meta_compositor_queue_frame_drawn (MetaCompositor *compositor,
    MetaWindowActor *window_actor = meta_window_actor_from_window (window);
  
    meta_window_actor_queue_frame_drawn (window_actor, no_delay_frame);
@@ -126,7 +132,7 @@ index 1770550d4..552d7bb24 100644
  }
  
  void
-@@ -992,6 +999,20 @@ meta_compositor_sync_stack (MetaCompositor  *compositor,
+@@ -995,6 +1002,20 @@ meta_compositor_sync_stack (MetaCompositor  *compositor,
  
    sync_actor_stacking (compositor);
  
@@ -147,7 +153,7 @@ index 1770550d4..552d7bb24 100644
    top_window_actor = get_top_visible_window_actor (compositor);
  
    if (priv->top_window_actor == top_window_actor)
-@@ -1022,7 +1043,17 @@ meta_compositor_sync_window_geometry (MetaCompositor *compositor,
+@@ -1025,7 +1046,17 @@ meta_compositor_sync_window_geometry (MetaCompositor *compositor,
    changes = meta_window_actor_sync_actor_geometry (window_actor, did_placement);
  
    if (changes & META_WINDOW_ACTOR_CHANGE_SIZE)
@@ -165,7 +171,7 @@ index 1770550d4..552d7bb24 100644
  }
  
  static void
-@@ -1188,6 +1219,44 @@ meta_compositor_get_property (GObject    *object,
+@@ -1191,6 +1222,45 @@ meta_compositor_get_property (GObject    *object,
      }
  }
  
@@ -185,6 +191,7 @@ index 1770550d4..552d7bb24 100644
 +    case META_PREF_CORNER_RADIUS:
 +    case META_PREF_CLIP_EDGE_PADDING:
 +    case META_PREF_BORDER_WIDTH:
++    case META_PREF_BORDER_BRIGHTNESS:
 +      if (pref == META_PREF_CLIP_EDGE_PADDING)
 +        meta_window_actor_update_clip_padding (l->data);
 +      
@@ -210,7 +217,7 @@ index 1770550d4..552d7bb24 100644
  static void
  meta_compositor_init (MetaCompositor *compositor)
  {
-@@ -1218,6 +1287,8 @@ meta_compositor_constructed (GObject *object)
+@@ -1221,6 +1291,8 @@ meta_compositor_constructed (GObject *object)
  
    priv->laters = meta_laters_new (compositor);
  
@@ -219,7 +226,7 @@ index 1770550d4..552d7bb24 100644
    G_OBJECT_CLASS (meta_compositor_parent_class)->constructed (object);
  }
  
-@@ -1243,6 +1314,8 @@ meta_compositor_dispose (GObject *object)
+@@ -1246,6 +1318,8 @@ meta_compositor_dispose (GObject *object)
    g_clear_pointer (&priv->feedback_group, clutter_actor_destroy);
    g_clear_pointer (&priv->windows, g_list_free);
  
@@ -228,7 +235,7 @@ index 1770550d4..552d7bb24 100644
    G_OBJECT_CLASS (meta_compositor_parent_class)->dispose (object);
  }
  
-@@ -1576,3 +1649,20 @@ meta_compositor_get_laters (MetaCompositor *compositor)
+@@ -1579,3 +1653,20 @@ meta_compositor_get_laters (MetaCompositor *compositor)
  
    return priv->laters;
  }
@@ -249,12 +256,11 @@ index 1770550d4..552d7bb24 100644
 +        meta_window_actor_set_blur_behind(l->data);
 +    }
 +}
-\ No newline at end of file
 diff --git a/src/compositor/meta-window-actor-private.h b/src/compositor/meta-window-actor-private.h
-index 64741e416..98495f3d7 100644
+index adae06547..eea31fa41 100644
 --- a/src/compositor/meta-window-actor-private.h
 +++ b/src/compositor/meta-window-actor-private.h
-@@ -99,4 +99,15 @@ void meta_window_actor_update_regions (MetaWindowActor *self);
+@@ -102,4 +102,15 @@ void meta_window_actor_update_regions (MetaWindowActor *self);
  
  gboolean meta_window_actor_can_freeze_commits (MetaWindowActor *self);
  
@@ -736,7 +742,7 @@ index 641c924db..28f1920f8 100644
 +                              self);
  }
 diff --git a/src/compositor/meta-window-actor-x11.c b/src/compositor/meta-window-actor-x11.c
-index e4769e087..60d376858 100644
+index 9e64462ea..7c003a342 100644
 --- a/src/compositor/meta-window-actor-x11.c
 +++ b/src/compositor/meta-window-actor-x11.c
 @@ -142,7 +142,8 @@ surface_repaint_scheduled (MetaSurfaceActor *actor,
@@ -749,7 +755,7 @@ index e4769e087..60d376858 100644
    actor_x11->repaint_scheduled = TRUE;
  }
  
-@@ -400,6 +401,8 @@ surface_size_changed (MetaSurfaceActor *actor,
+@@ -438,6 +439,8 @@ surface_size_changed (MetaSurfaceActor *actor,
    MetaWindowActorX11 *actor_x11 = META_WINDOW_ACTOR_X11 (user_data);
  
    meta_window_actor_x11_update_shape (actor_x11);
@@ -758,7 +764,7 @@ index e4769e087..60d376858 100644
  }
  
  static void
-@@ -538,6 +541,9 @@ has_shadow (MetaWindowActorX11 *actor_x11)
+@@ -576,6 +579,9 @@ has_shadow (MetaWindowActorX11 *actor_x11)
    if (meta_window_get_frame (window))
      return TRUE;
  
@@ -768,7 +774,7 @@ index e4769e087..60d376858 100644
    /*
     * Do not add shadows to non-opaque (ARGB32) windows, as we can't easily
     * generate shadows for them.
-@@ -694,6 +700,8 @@ clip_shadow_under_window (MetaWindowActorX11 *actor_x11)
+@@ -732,6 +738,8 @@ clip_shadow_under_window (MetaWindowActorX11 *actor_x11)
  
    if (window->frame)
      return TRUE;
@@ -777,7 +783,7 @@ index e4769e087..60d376858 100644
  
    return meta_window_actor_is_opaque (META_WINDOW_ACTOR (actor_x11));
  }
-@@ -1036,6 +1044,11 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
+@@ -1074,6 +1082,11 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
      {
        region = cairo_region_reference (window->shape_region);
      }
@@ -789,7 +795,7 @@ index e4769e087..60d376858 100644
    else
      {
        /* If we don't have a shape on the server, that means that
-@@ -1043,7 +1056,7 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
+@@ -1081,7 +1094,7 @@ update_shape_region (MetaWindowActorX11 *actor_x11)
         * entire window. */
        region = cairo_region_create_rectangle (&client_area);
      }
@@ -798,7 +804,7 @@ index e4769e087..60d376858 100644
    if (window->shape_region || window->frame)
      build_and_scan_frame_mask (actor_x11, region);
  
-@@ -1151,6 +1164,23 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
+@@ -1189,6 +1202,23 @@ update_opaque_region (MetaWindowActorX11 *actor_x11)
    cairo_region_destroy (opaque_region);
  }
  
@@ -822,7 +828,7 @@ index e4769e087..60d376858 100644
  static void
  update_frame_bounds (MetaWindowActorX11 *actor_x11)
  {
-@@ -1158,8 +1188,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
+@@ -1196,8 +1226,13 @@ update_frame_bounds (MetaWindowActorX11 *actor_x11)
      meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_x11));
  
    g_clear_pointer (&actor_x11->frame_bounds, cairo_region_destroy);
@@ -838,7 +844,7 @@ index e4769e087..60d376858 100644
  }
  
  static void
-@@ -1304,7 +1339,10 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
+@@ -1342,7 +1377,10 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
        cairo_region_t *clip = actor_x11->shadow_clip;
        CoglFramebuffer *framebuffer;
  
@@ -851,7 +857,7 @@ index e4769e087..60d376858 100644
  
        /* The frame bounds are already subtracted from actor_x11->shadow_clip
 diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
-index d4fc9a43a..f4eb9ae37 100644
+index b32df2010..932b2904d 100644
 --- a/src/compositor/meta-window-actor.c
 +++ b/src/compositor/meta-window-actor.c
 @@ -41,6 +41,9 @@
@@ -880,7 +886,7 @@ index d4fc9a43a..f4eb9ae37 100644
    int geometry_scale;
  
    /*
-@@ -119,6 +131,245 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE (MetaWindowActor, meta_window_actor, CLUTTER_TY
+@@ -119,6 +131,247 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE (MetaWindowActor, meta_window_actor, CLUTTER_TY
                                    G_IMPLEMENT_INTERFACE (META_TYPE_CULLABLE, cullable_iface_init)
                                    G_IMPLEMENT_INTERFACE (META_TYPE_SCREEN_CAST_WINDOW, screen_cast_window_iface_init));
  
@@ -966,9 +972,9 @@ index d4fc9a43a..f4eb9ae37 100644
 +
 +
 +/*
-+ * in wayland, `res-name` property of MetaWindow is empty when MetaWindow
-+ * has been added to MetaWindowActor. So we have to create create blur actor
-+ * in on_wm_class_changed callback.
++ * in xwayland, `res-name` property of MetaWindow (WM_CLASS_INSTANCE property)
++ * is empty when MetaWindow has been added to MetaWindowActor. So we have to
++ * create create blur actor in on_wm_class_changed callback.
 + * 
 + * in xorg, `res-name` property of MetaWindow has been setted when MetaWindow,
 + * so we can create blur actor when window actor be created.
@@ -982,6 +988,8 @@ index d4fc9a43a..f4eb9ae37 100644
 +  if (!meta_window_is_normal (self))
 +    return;
 +  if (!meta_prefs_in_blur_list (priv->window->res_name))
++    return;
++  if (priv->blur_actor != NULL)
 +    return;
 +
 +  priv->blur_actor = clutter_actor_new ();
@@ -1126,7 +1134,7 @@ index d4fc9a43a..f4eb9ae37 100644
  static void
  meta_window_actor_class_init (MetaWindowActorClass *klass)
  {
-@@ -216,6 +467,11 @@ meta_window_actor_init (MetaWindowActor *self)
+@@ -216,6 +469,11 @@ meta_window_actor_init (MetaWindowActor *self)
      meta_window_actor_get_instance_private (self);
  
    priv->geometry_scale = 1;
@@ -1138,7 +1146,7 @@ index d4fc9a43a..f4eb9ae37 100644
  }
  
  static void
-@@ -368,6 +624,11 @@ meta_window_actor_real_assign_surface_actor (MetaWindowActor  *self,
+@@ -368,6 +626,11 @@ meta_window_actor_real_assign_surface_actor (MetaWindowActor  *self,
      meta_window_actor_set_frozen (self, TRUE);
    else
      meta_window_actor_sync_thawed_state (self);
@@ -1150,7 +1158,7 @@ index d4fc9a43a..f4eb9ae37 100644
  }
  
  void
-@@ -399,6 +660,31 @@ init_surface_actor (MetaWindowActor *self)
+@@ -399,6 +662,31 @@ init_surface_actor (MetaWindowActor *self)
      meta_window_actor_assign_surface_actor (self, surface_actor);
  }
  
@@ -1162,7 +1170,7 @@ index d4fc9a43a..f4eb9ae37 100644
 +  if (!priv->blur_actor)
 +    return;
 +
-+  if (priv->visible)
++  if (priv->visible && !priv->unminimize_in_progress)
 +    clutter_actor_show(priv->blur_actor);
 +  else
 +    clutter_actor_hide(priv->blur_actor);
@@ -1182,7 +1190,7 @@ index d4fc9a43a..f4eb9ae37 100644
  static void
  meta_window_actor_constructed (GObject *object)
  {
-@@ -406,6 +692,7 @@ meta_window_actor_constructed (GObject *object)
+@@ -406,6 +694,7 @@ meta_window_actor_constructed (GObject *object)
    MetaWindowActorPrivate *priv =
      meta_window_actor_get_instance_private (self);
    MetaWindow *window = priv->window;
@@ -1190,7 +1198,7 @@ index d4fc9a43a..f4eb9ae37 100644
  
    priv->compositor = window->display->compositor;
  
-@@ -424,6 +711,15 @@ meta_window_actor_constructed (GObject *object)
+@@ -424,6 +713,15 @@ meta_window_actor_constructed (GObject *object)
      priv->first_frame_state = DRAWING_FIRST_FRAME;
  
    meta_window_actor_sync_actor_geometry (self, priv->window->placed);
@@ -1206,7 +1214,7 @@ index d4fc9a43a..f4eb9ae37 100644
  }
  
  static void
-@@ -442,6 +738,7 @@ meta_window_actor_dispose (GObject *object)
+@@ -442,6 +740,7 @@ meta_window_actor_dispose (GObject *object)
  
    priv->disposed = TRUE;
  
@@ -1214,7 +1222,7 @@ index d4fc9a43a..f4eb9ae37 100644
    meta_compositor_remove_window_actor (compositor, self);
  
    g_clear_object (&priv->window);
-@@ -470,6 +767,7 @@ meta_window_actor_set_property (GObject      *object,
+@@ -470,6 +769,7 @@ meta_window_actor_set_property (GObject      *object,
      {
      case PROP_META_WINDOW:
        priv->window = g_value_dup_object (value);
@@ -1222,8 +1230,8 @@ index d4fc9a43a..f4eb9ae37 100644
        g_signal_connect_object (priv->window, "notify::appears-focused",
                                 G_CALLBACK (window_appears_focused_notify), self, 0);
        break;
-@@ -662,6 +960,20 @@ start_simple_effect (MetaWindowActor  *self,
-   return TRUE;
+@@ -606,6 +906,47 @@ is_freeze_thaw_effect (MetaPluginEffect event)
+   }
  }
  
 +static void
@@ -1240,23 +1248,78 @@ index d4fc9a43a..f4eb9ae37 100644
 +  clutter_actor_remove_child (parent, priv->blur_actor);
 +}
 +
- static void
- meta_window_actor_after_effects (MetaWindowActor *self)
- {
-@@ -675,6 +987,12 @@ meta_window_actor_after_effects (MetaWindowActor *self)
- 
-   if (priv->needs_destroy)
-     {
++static void
++meta_window_actor_hide_blur (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private (self);
++
++  if (!priv->blur_actor)
++    return;
++
++  clutter_actor_hide(priv->blur_actor);
++}
++
++static void
++meta_window_actor_show_blur (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv =
++    meta_window_actor_get_instance_private (self);
++
++  if (!priv->blur_actor)
++    return;
++
++  if (priv->visible && !priv->unminimize_in_progress)
++    clutter_actor_show(priv->blur_actor);
++  else
++    clutter_actor_hide(priv->blur_actor);
++}
++
+ static gboolean
+ start_simple_effect (MetaWindowActor  *self,
+                      MetaPluginEffect  event)
+@@ -625,15 +966,29 @@ start_simple_effect (MetaWindowActor  *self,
+   case META_PLUGIN_NONE:
+     return FALSE;
+   case META_PLUGIN_MINIMIZE:
++      if (priv->round_clip_effect)
++        {
++          meta_window_actor_hide_blur(self);
++        }
+     counter = &priv->minimize_in_progress;
+     break;
+   case META_PLUGIN_UNMINIMIZE:
++      if (priv->round_clip_effect)
++        {
++          meta_window_actor_hide_blur(self);
++        }
+     counter = &priv->unminimize_in_progress;
+     break;
+   case META_PLUGIN_MAP:
+     counter = &priv->map_in_progress;
+     break;
+   case META_PLUGIN_DESTROY:
 +      if (priv->round_clip_effect)
 +        {
 +          clutter_actor_remove_effect (CLUTTER_ACTOR(self),
 +                                       CLUTTER_EFFECT(priv->round_clip_effect));
 +          meta_window_actor_remove_blur(self);
 +        }
-       clutter_actor_destroy (CLUTTER_ACTOR (self));
+     counter = &priv->destroy_in_progress;
+     break;
+   case META_PLUGIN_SIZE_CHANGE:
+@@ -682,6 +1037,10 @@ meta_window_actor_after_effects (MetaWindowActor *self)
+       g_signal_emit (self, signals[EFFECTS_COMPLETED], 0);
+       meta_window_actor_sync_visibility (self);
+       meta_window_actor_sync_actor_geometry (self, FALSE);
++      if (priv->round_clip_effect && !priv->unminimize_in_progress)
++        {
++         meta_window_actor_show_blur(self);
++        }
      }
-   else
-@@ -803,6 +1121,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
+ 
+   clutter_stage_repick_device (stage, clutter_seat_get_pointer (seat));
+@@ -803,6 +1162,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
      clutter_actor_destroy (CLUTTER_ACTOR (self));
  }
  
@@ -1276,8 +1339,17 @@ index d4fc9a43a..f4eb9ae37 100644
  MetaWindowActorChanges
  meta_window_actor_sync_actor_geometry (MetaWindowActor *self,
                                         gboolean         did_placement)
+@@ -1031,7 +1403,7 @@ meta_window_actor_sync_visibility (MetaWindowActor *self)
+ 
+   if (CLUTTER_ACTOR_IS_VISIBLE (self) != priv->visible)
+     {
+-      if (priv->visible)
++      if (priv->visible && !priv->unminimize_in_progress)
+         clutter_actor_show (CLUTTER_ACTOR (self));
+       else
+         clutter_actor_hide (CLUTTER_ACTOR (self));
 diff --git a/src/core/prefs.c b/src/core/prefs.c
-index 60d7a278a..6c27d4556 100644
+index 536d9dd57..29bddc170 100644
 --- a/src/core/prefs.c
 +++ b/src/core/prefs.c
 @@ -33,6 +33,8 @@
@@ -1289,12 +1361,13 @@ index 60d7a278a..6c27d4556 100644
  #include "compositor/meta-plugin-manager.h"
  #include "core/keybindings-private.h"
  #include "core/meta-accel-parse.h"
-@@ -119,6 +121,16 @@ static gboolean show_fallback_app_menu = TRUE;
+@@ -120,6 +122,17 @@ static gboolean show_fallback_app_menu = TRUE;
  static GDesktopVisualBellType visual_bell_type = G_DESKTOP_VISUAL_BELL_FULLSCREEN_FLASH;
  static MetaButtonLayout button_layout;
  
 +static int round_corner_radius = 8;
 +static int border_width = 0;
++static int border_brightness = 40;
 +static int blur_sigmal = 20;
 +static int blur_window_opacity = 80;
 +static int blur_brightness = 100;
@@ -1306,7 +1379,7 @@ index 60d7a278a..6c27d4556 100644
  /* NULL-terminated array */
  static char **workspace_names = NULL;
  
-@@ -149,6 +161,7 @@ static gboolean mouse_button_mods_handler (GVariant*, gpointer*, gpointer);
+@@ -150,6 +163,7 @@ static gboolean mouse_button_mods_handler (GVariant*, gpointer*, gpointer);
  static gboolean button_layout_handler (GVariant*, gpointer*, gpointer);
  static gboolean overlay_key_handler (GVariant*, gpointer*, gpointer);
  static gboolean locate_pointer_key_handler (GVariant*, gpointer*, gpointer);
@@ -1314,7 +1387,7 @@ index 60d7a278a..6c27d4556 100644
  
  static gboolean iso_next_group_handler (GVariant*, gpointer*, gpointer);
  
-@@ -453,6 +466,15 @@ static MetaStringPreference preferences_string[] =
+@@ -454,6 +468,15 @@ static MetaStringPreference preferences_string[] =
        locate_pointer_key_handler,
        NULL,
      },
@@ -1330,7 +1403,7 @@ index 60d7a278a..6c27d4556 100644
      { { NULL, 0, 0 }, NULL },
    };
  
-@@ -474,6 +496,22 @@ static MetaStringArrayPreference preferences_string_array[] =
+@@ -475,6 +498,22 @@ static MetaStringArrayPreference preferences_string_array[] =
        iso_next_group_handler,
        NULL,
      },
@@ -1353,7 +1426,7 @@ index 60d7a278a..6c27d4556 100644
      { { NULL, 0, 0 }, NULL },
    };
  
-@@ -514,6 +552,46 @@ static MetaIntPreference preferences_int[] =
+@@ -515,6 +554,54 @@ static MetaIntPreference preferences_int[] =
        },
        &cursor_size
      },
@@ -1372,6 +1445,14 @@ index 60d7a278a..6c27d4556 100644
 +        META_PREF_BORDER_WIDTH,
 +      },
 +      &border_width,
++    },
++    {
++      {
++        "border-brightness",
++        SCHEMA_MUTTER,
++        META_PREF_BORDER_BRIGHTNESS,
++      },
++      &border_brightness,
 +    },
 +    {
 +      {
@@ -1400,7 +1481,7 @@ index 60d7a278a..6c27d4556 100644
      { { NULL, 0, 0 }, NULL },
    };
  
-@@ -1587,6 +1665,81 @@ locate_pointer_key_handler (GVariant *value,
+@@ -1588,6 +1675,81 @@ locate_pointer_key_handler (GVariant *value,
    return TRUE;
  }
  
@@ -1482,7 +1563,7 @@ index 60d7a278a..6c27d4556 100644
  static gboolean
  iso_next_group_handler (GVariant *value,
                          gpointer *result,
-@@ -1758,6 +1911,30 @@ meta_preference_to_string (MetaPreference pref)
+@@ -1759,6 +1921,33 @@ meta_preference_to_string (MetaPreference pref)
  
      case META_PREF_CHECK_ALIVE_TIMEOUT:
        return "CHECK_ALIVE_TIMEOUT";
@@ -1499,6 +1580,9 @@ index 60d7a278a..6c27d4556 100644
 +    case META_PREF_BORDER_WIDTH:
 +      return "BORDER_WIDTH";
 +    
++    case META_PREF_BORDER_BRIGHTNESS:
++      return "BORDER_BRIGHTNESS";
++
 +    case META_PREF_BLUR_SIGMAL:
 +      return "BLUR_SIGMAL";
 +
@@ -1513,7 +1597,7 @@ index 60d7a278a..6c27d4556 100644
      }
  
    return "(unknown)";
-@@ -2226,3 +2403,88 @@ meta_prefs_set_force_fullscreen (gboolean whether)
+@@ -2227,3 +2416,94 @@ meta_prefs_set_force_fullscreen (gboolean whether)
  {
    force_fullscreen = whether;
  }
@@ -1572,6 +1656,12 @@ index 60d7a278a..6c27d4556 100644
 +  return border_width;
 +}
 +
++double
++meta_prefs_get_border_brightness(void)
++{
++  return (double) border_brightness * 0.01;
++}
++
 +int
 +meta_prefs_get_blur_sigmal(void)
 +{
@@ -1602,12 +1692,11 @@ index 60d7a278a..6c27d4556 100644
 +      return TRUE;
 +  return FALSE;
 +}
-\ No newline at end of file
 diff --git a/src/meson.build b/src/meson.build
-index 284bdf522..a0c5e2d4b 100644
+index f3aebfb28..cf9cf4b61 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -163,6 +163,18 @@ if get_option('verbose')
+@@ -169,6 +169,18 @@ if get_option('verbose')
    ]
  endif
  
@@ -1626,7 +1715,7 @@ index 284bdf522..a0c5e2d4b 100644
  mutter_sources = [
    'backends/edid.h',
    'backends/edid-parse.c',
-@@ -444,6 +456,8 @@ mutter_sources = [
+@@ -458,6 +470,8 @@ mutter_sources = [
    'x11/window-x11-private.h',
    'x11/xprops.c',
    'x11/xprops.h',
@@ -1635,7 +1724,7 @@ index 284bdf522..a0c5e2d4b 100644
  ]
  
  if have_egl
-@@ -966,7 +980,8 @@ subdir('meta')
+@@ -993,7 +1007,8 @@ subdir('meta')
  mutter_built_sources += mutter_enum_types
  
  libmutter = shared_library(libmutter_name,
@@ -1646,10 +1735,10 @@ index 284bdf522..a0c5e2d4b 100644
    version: '0.0.0',
    soversion: 0,
 diff --git a/src/meta/prefs.h b/src/meta/prefs.h
-index e2c8b46cf..f1ee72576 100644
+index 227de68bf..7d5d8f347 100644
 --- a/src/meta/prefs.h
 +++ b/src/meta/prefs.h
-@@ -106,6 +106,15 @@ typedef enum
+@@ -106,6 +106,16 @@ typedef enum
    META_PREF_DRAG_THRESHOLD,
    META_PREF_LOCATE_POINTER,
    META_PREF_CHECK_ALIVE_TIMEOUT,
@@ -1658,6 +1747,7 @@ index e2c8b46cf..f1ee72576 100644
 +  META_PREF_CLIP_EDGE_PADDING,
 +  META_PREF_BLACK_LIST,
 +  META_PREF_BORDER_WIDTH,
++  META_PREF_BORDER_BRIGHTNESS,
 +  META_PREF_BLUR_SIGMAL,
 +  META_PREF_BLUR_BRIGHTNESS,
 +  META_PREF_BLUR_LIST,
@@ -1665,7 +1755,7 @@ index e2c8b46cf..f1ee72576 100644
  } MetaPreference;
  
  typedef void (* MetaPrefsChangedFunc) (MetaPreference pref,
-@@ -236,6 +245,30 @@ int      meta_prefs_get_draggable_border_width (void);
+@@ -233,6 +243,33 @@ int      meta_prefs_get_draggable_border_width (void);
  META_EXPORT
  int      meta_prefs_get_drag_threshold (void);
  
@@ -1680,6 +1770,9 @@ index e2c8b46cf..f1ee72576 100644
 +
 +META_EXPORT
 +int      meta_prefs_get_border_width(void);
++
++META_EXPORT
++double   meta_prefs_get_border_brightness(void);
 +
 +META_EXPORT
 +int      meta_prefs_get_blur_sigmal(void);
@@ -1729,10 +1822,10 @@ index 48b2a361c..8be6a8f8b 100644
  meta_ui_frame_move_resize (MetaUIFrame *frame,
                             int x, int y, int width, int height)
 diff --git a/src/ui/frames.h b/src/ui/frames.h
-index 73dee1737..03b19ba40 100644
+index d81be1c72..c32a93d99 100644
 --- a/src/ui/frames.h
 +++ b/src/ui/frames.h
-@@ -135,6 +135,10 @@ void meta_ui_frame_get_borders (MetaUIFrame      *frame,
+@@ -134,6 +134,10 @@ void meta_ui_frame_get_borders (MetaUIFrame      *frame,
  
  cairo_region_t * meta_ui_frame_get_bounds (MetaUIFrame *frame);
  

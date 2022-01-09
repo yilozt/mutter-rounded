@@ -51,8 +51,8 @@ run git commit -m 'init'
 #    Then use `git diff` to generate a big patch for building the package
 run cp ../*.[ch] ./src
 run cp "${aur}"/*.[ch] ./src
-run patch -p1 < "${aur}"/rounded_corners_40.5.patch
-run patch -p1 < "${aur}"/shell_blur_effect_40.5.patch
+run patch -p1 < "${aur}"/rounded_corners.patch
+run patch -p1 < "${aur}"/shell_blur_effect.patch
 run git add **.[ch]
 run git add **.in
 run git add src/meson.build

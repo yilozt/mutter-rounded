@@ -82,7 +82,8 @@
 "uniform vec4 inner_corner_centers_2;                                     \n"\
 "uniform vec2 pixel_step;                                                 \n"\
 "uniform int skip;                                                        \n"\
-"uniform float border_width;                                              \n"
+"uniform float border_width;                                              \n"\
+"uniform float border_brightness;                                         \n"
 
 /* used by src/meta_clip_effect.c  */
 #define ROUNDED_CLIP_FRAGMENT_SHADER_DECLARATIONS                            \
@@ -108,7 +109,7 @@ ROUNDED_CLIP_FRAGMENT_SHADER_FUNCS
 "                                                                         \n"\
 "    cogl_color_out *= smoothstep (0.0, 0.6, inner_alpha);                \n"\
 "    cogl_color_out = mix (cogl_color_out,                                \n"\
-"                          vec4(vec3(0.65), 1.0),                         \n"\
+"                          vec4(vec3(border_brightness), 1.0),            \n"\
 "                          border_alpha);                                 \n"\
 "  } else {                                                               \n"\
 "    cogl_color_out = cogl_color_out * outer_alpha;                       \n"\

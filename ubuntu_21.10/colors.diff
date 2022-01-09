@@ -1,0 +1,30 @@
+diff --git a/src/wayland/meta-wayland-dma-buf.c b/src/wayland/meta-wayland-dma-buf.c
+index ae1f0f9422c6f7fa528d9e46dd3d504b30b1d938..0d30684b7bc6f8ee87430a3206abaa45b0a1d336 100644
+--- a/src/wayland/meta-wayland-dma-buf.c
++++ b/src/wayland/meta-wayland-dma-buf.c
+@@ -115,9 +115,15 @@ meta_wayland_dma_buf_realize_texture (MetaWaylandBuffer  *buffer,
+     case DRM_FORMAT_XRGB8888:
+       cogl_format = COGL_PIXEL_FORMAT_RGB_888;
+       break;
++    case DRM_FORMAT_XBGR8888:
++      cogl_format = COGL_PIXEL_FORMAT_BGR_888;
++      break;
+     case DRM_FORMAT_ARGB8888:
+       cogl_format = COGL_PIXEL_FORMAT_ARGB_8888_PRE;
+       break;
++    case DRM_FORMAT_ABGR8888:
++      cogl_format = COGL_PIXEL_FORMAT_ABGR_8888_PRE;
++      break;
+     case DRM_FORMAT_XRGB2101010:
+       cogl_format = COGL_PIXEL_FORMAT_XRGB_2101010;
+       break;
+@@ -713,7 +719,9 @@ dma_buf_bind (struct wl_client *client,
+   wl_resource_set_implementation (resource, &dma_buf_implementation,
+                                   compositor, NULL);
+   send_modifiers (resource, DRM_FORMAT_ARGB8888);
++  send_modifiers (resource, DRM_FORMAT_ABGR8888);
+   send_modifiers (resource, DRM_FORMAT_XRGB8888);
++  send_modifiers (resource, DRM_FORMAT_XBGR8888);
+   send_modifiers (resource, DRM_FORMAT_ARGB2101010);
+   send_modifiers (resource, DRM_FORMAT_ABGR2101010);
+   send_modifiers (resource, DRM_FORMAT_XRGB2101010);

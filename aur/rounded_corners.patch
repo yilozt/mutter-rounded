@@ -857,7 +857,7 @@ index 9e64462ea..7c003a342 100644
  
        /* The frame bounds are already subtracted from actor_x11->shadow_clip
 diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
-index b32df2010..932b2904d 100644
+index b32df2010..9d2994e74 100644
 --- a/src/compositor/meta-window-actor.c
 +++ b/src/compositor/meta-window-actor.c
 @@ -41,6 +41,9 @@
@@ -1166,11 +1166,11 @@ index b32df2010..932b2904d 100644
 +on_visible_changed (MetaWindowActor *self)
 +{
 +  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
-+  
++
 +  if (!priv->blur_actor)
 +    return;
 +
-+  if (priv->visible && !priv->unminimize_in_progress)
++  if (priv->visible && !meta_window_actor_effect_in_progress (self))
 +    clutter_actor_show(priv->blur_actor);
 +  else
 +    clutter_actor_hide(priv->blur_actor);
@@ -1203,14 +1203,14 @@ index b32df2010..932b2904d 100644
  
    meta_window_actor_sync_actor_geometry (self, priv->window->placed);
 +
-+  priv->visible_changed_id = 
-+    g_signal_connect (object, "notify::visible", G_CALLBACK (on_visible_changed), NULL);
-+
 +  if (type == META_WINDOW_CLIENT_TYPE_WAYLAND)
 +  {
 +    priv->wm_class_changed_id =
 +      g_signal_connect (window, "notify::wm-class", G_CALLBACK (on_wm_class_changed), object);
 +  }
++
++  priv->visible_changed_id = 
++    g_signal_connect (object, "notify::visible", G_CALLBACK (on_visible_changed), NULL);
  }
  
  static void
@@ -1230,7 +1230,15 @@ index b32df2010..932b2904d 100644
        g_signal_connect_object (priv->window, "notify::appears-focused",
                                 G_CALLBACK (window_appears_focused_notify), self, 0);
        break;
-@@ -606,6 +906,47 @@ is_freeze_thaw_effect (MetaPluginEffect event)
+@@ -588,6 +888,7 @@ meta_window_actor_effect_in_progress (MetaWindowActor *self)
+     meta_window_actor_get_instance_private (self);
+ 
+   return (priv->minimize_in_progress ||
++          priv->unminimize_in_progress ||
+           priv->size_change_in_progress ||
+           priv->map_in_progress ||
+           priv->destroy_in_progress);
+@@ -606,6 +907,47 @@ is_freeze_thaw_effect (MetaPluginEffect event)
    }
  }
  
@@ -1269,7 +1277,7 @@ index b32df2010..932b2904d 100644
 +  if (!priv->blur_actor)
 +    return;
 +
-+  if (priv->visible && !priv->unminimize_in_progress)
++  if (priv->visible && !meta_window_actor_effect_in_progress (self))
 +    clutter_actor_show(priv->blur_actor);
 +  else
 +    clutter_actor_hide(priv->blur_actor);
@@ -1278,7 +1286,7 @@ index b32df2010..932b2904d 100644
  static gboolean
  start_simple_effect (MetaWindowActor  *self,
                       MetaPluginEffect  event)
-@@ -625,15 +966,29 @@ start_simple_effect (MetaWindowActor  *self,
+@@ -625,15 +967,33 @@ start_simple_effect (MetaWindowActor  *self,
    case META_PLUGIN_NONE:
      return FALSE;
    case META_PLUGIN_MINIMIZE:
@@ -1296,6 +1304,10 @@ index b32df2010..932b2904d 100644
      counter = &priv->unminimize_in_progress;
      break;
    case META_PLUGIN_MAP:
++      if (priv->round_clip_effect)
++        {
++          meta_window_actor_hide_blur(self);
++        }
      counter = &priv->map_in_progress;
      break;
    case META_PLUGIN_DESTROY:
@@ -1308,18 +1320,15 @@ index b32df2010..932b2904d 100644
      counter = &priv->destroy_in_progress;
      break;
    case META_PLUGIN_SIZE_CHANGE:
-@@ -682,6 +1037,10 @@ meta_window_actor_after_effects (MetaWindowActor *self)
+@@ -682,6 +1042,7 @@ meta_window_actor_after_effects (MetaWindowActor *self)
        g_signal_emit (self, signals[EFFECTS_COMPLETED], 0);
        meta_window_actor_sync_visibility (self);
        meta_window_actor_sync_actor_geometry (self, FALSE);
-+      if (priv->round_clip_effect && !priv->unminimize_in_progress)
-+        {
-+         meta_window_actor_show_blur(self);
-+        }
++      meta_window_actor_show_blur(self);
      }
  
    clutter_stage_repick_device (stage, clutter_seat_get_pointer (seat));
-@@ -803,6 +1162,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
+@@ -803,6 +1164,19 @@ meta_window_actor_queue_destroy (MetaWindowActor *self)
      clutter_actor_destroy (CLUTTER_ACTOR (self));
  }
  
@@ -1339,7 +1348,7 @@ index b32df2010..932b2904d 100644
  MetaWindowActorChanges
  meta_window_actor_sync_actor_geometry (MetaWindowActor *self,
                                         gboolean         did_placement)
-@@ -1031,7 +1403,7 @@ meta_window_actor_sync_visibility (MetaWindowActor *self)
+@@ -1031,7 +1405,7 @@ meta_window_actor_sync_visibility (MetaWindowActor *self)
  
    if (CLUTTER_ACTOR_IS_VISIBLE (self) != priv->visible)
      {

@@ -47,7 +47,7 @@ Alternatively, you can build packages by yourself with scripts in `fedora_35` fo
 ```bash
 git clone https://github.com/yilozt/mutter-rounded
 cd ./mutter-rounded/fedora_35
-./packages.sh
+./package.sh
 ```
 
 After scripts finish, the rpm packages will be found in `~/rpmbuild/RPMS/x86_64/`:

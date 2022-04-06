@@ -48,7 +48,7 @@ sudo dpkg -i libmutter-8-0*.deb mutter-common*.deb
 
 ### Uninstall
 
-Install `libmutter-8-0` and `mutter-common` from offical repo:
+Install `libmutter-8-0` and `mutter-common` from official repo:
 
 ```bash
 sudo apt install libmutter-8-0 mutter-common

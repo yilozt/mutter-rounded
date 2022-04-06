@@ -6,8 +6,7 @@
 blur_effect_url="https://gitee.com/mirrors_GNOME/gnome-shell/raw"
 
 dir="$(cd $(dirname $0); pwd)"
-aur="${dir}/../aur"
-cd "${dir}"
+patches="${dir}/../patches"
 tool="$dir/../tool"
 
 SUDO=sudo
@@ -16,8 +15,9 @@ if [ "$(whoami)" = "root" ]; then
 fi
 
 export LANG=en_US.UTF-8
-. $tool
 
+. $tool
+cd "${dir}"
 run mkdir -p workspace
 run cd workspace
 
@@ -33,17 +33,17 @@ run pull-lp-source mutter impish
 run wget -nc ${blur_effect_url}/40.5/src/shell-blur-effect.c
 run wget -nc ${blur_effect_url}/40.5/src/shell-blur-effect.h
 
-# patch the code
+# apply patches
 run cp shell*.[ch] mutter-40.5/src
-run cp "$aur"/*.[ch] mutter-40.5/src
+run cp "$patches"/*.[ch] mutter-40.5/src
 run cd mutter-40.5/
-run patch -p1 < "${aur}"/rounded_corners.41.1.patch
-run patch -p1 < "${aur}"/shell_blur_effect.patch
+run patch -p1 < "${patches}"/rounded_corners.41.1.patch
+run patch -p1 < "${patches}"/shell_blur_effect.patch
 run patch -p1 < "${dir}"/symbols.patch
 run patch -p1 < "${dir}"/colors.diff
 
 # commit changes
-run dpkg-source --commit . rounded_corners
+run dpkg-source --auto--commit -b
 
 # build packages
 run _ignore_ debuild

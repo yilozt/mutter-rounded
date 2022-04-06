@@ -8,7 +8,7 @@ blur_effect_url="https://gitlab.gnome.org/GNOME/gnome-shell/-/raw"
 # 0. Prepare
 # Get the absolute path where this script locate
 dir="$(cd $(dirname $0); pwd)"
-aur="${dir}/../aur"
+patches="${dir}/../patches"
 tool="$dir/../tool"
 SUDO=sudo
 if [ "$(whoami)" = "root" ]; then
@@ -47,12 +47,12 @@ run git config user.email "email@example.com"
 run git add *
 run git commit -m 'init'
 
-# 3. Copy the source file from aur and apply the patches
+# 3. Copy the source file from patches and apply the patches
 #    Then use `git diff` to generate a big patch for building the package
 run cp ../*.[ch] ./src
-run cp "${aur}"/*.[ch] ./src
-run patch -p1 < "${aur}"/rounded_corners.41.3.patch
-run patch -p1 < "${aur}"/shell_blur_effect.patch
+run cp "${patches}"/*.[ch] ./src
+run patch -p1 < "${patches}"/rounded_corners.41.3.patch
+run patch -p1 < "${patches}"/shell_blur_effect.patch
 run git add **.[ch]
 run git add **.in
 run git add src/meson.build

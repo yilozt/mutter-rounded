@@ -25,6 +25,12 @@ install `mutter-rounded` by AUR helper:
 yay -S mutter-rounded
 ```
 
+### Uninstall
+
+```bash
+sudo pacman -S mutter
+```
+
 ## Ubuntu 21.10
 
 There is a simple script to help you build the packages in ubuntu 21.10. It's neccesary to check the content of script. Before you build the packages, the `Source code` checkbox in `Software & Updates` should be enabled:
@@ -35,7 +41,15 @@ There is a simple script to help you build the packages in ubuntu 21.10. It's ne
 git clone https://github.com/yilozt/mutter-rounded
 cd ./mutter-rounded/ubuntu_21.10
 ./package.sh
-sudo dpkg -i *.deb
+sudo dpkg -i libmutter-8-0*.deb mutter-common*.deb
+```
+
+### Uninstall
+
+Install `libmutter-8-0` and `mutter-common` from offical repo:
+
+```bash
+sudo apt install libmutter-8-0 mutter-common
 ```
 
 ## Fedora 35
@@ -47,7 +61,7 @@ Alternatively, you can build packages by yourself with scripts in `fedora_35` fo
 ```bash
 git clone https://github.com/yilozt/mutter-rounded
 cd ./mutter-rounded/fedora_35
-./packages.sh
+./package.sh
 ```
 
 After scripts finish, the rpm packages will be found in `~/rpmbuild/RPMS/x86_64/`:
@@ -55,7 +69,13 @@ After scripts finish, the rpm packages will be found in `~/rpmbuild/RPMS/x86_64/
 ```
 cd ~/rpmbuild/RPMS/x86_64/
 sudo dnf upgrade mutter
-sudo rpm --reinstall mutter-41.1-1.fc35.x86_64.rpm
+sudo rpm --reinstall mutter-41.*
+```
+
+### Uninstall
+
+```
+sudo dnf reinstall mutter
 ```
 
 # Screenshots

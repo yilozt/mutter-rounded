@@ -43,7 +43,7 @@ run patch -p1 < "${dir}"/symbols.patch
 run patch -p1 < "${dir}"/colors.diff
 
 # commit changes
-run dpkg-source --auto--commit -b
+run dpkg-source --auto-commit -b .
 
 # build packages
 run _ignore_ debuild

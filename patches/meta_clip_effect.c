@@ -8,6 +8,15 @@ typedef struct {
   CoglPipeline *pipeline;
   ClutterActor *actor;
   cairo_rectangle_int_t bounds;
+
+  int bounds_uniform;
+  int clip_radius_uniform;
+  int inner_bounds_uniform;
+  int inner_clip_radius_uniform;
+  int pixel_step_uniform;
+  int skip_uniform;
+  int border_width_uniform;
+  int border_brightness_uniform;
 } MetaClipEffectPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE(MetaClipEffect, meta_clip_effect, CLUTTER_TYPE_OFFSCREEN_EFFECT)
@@ -109,6 +118,24 @@ meta_clip_effect_init(MetaClipEffect *self)
 
   priv->pipeline = cogl_pipeline_copy (klass->base_pipeline);
   priv->actor = NULL;
+
+  // get location of uniforms from shader
+  priv->bounds_uniform = 
+    cogl_pipeline_get_uniform_location(priv->pipeline, "bounds");
+  priv->clip_radius_uniform =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "clip_radius");
+  priv->inner_bounds_uniform = 
+    cogl_pipeline_get_uniform_location(priv->pipeline, "inner_bounds");
+  priv->inner_clip_radius_uniform =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "inner_clip_radius");
+  priv->pixel_step_uniform =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "pixel_step");
+  priv->skip_uniform = 
+    cogl_pipeline_get_uniform_location(priv->pipeline, "skip");
+  priv->border_width_uniform =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "border_width");
+  priv->border_brightness_uniform =
+    cogl_pipeline_get_uniform_location(priv->pipeline, "border_brightness");
 }
 
 MetaClipEffect *meta_clip_effect_new(void)
@@ -143,82 +170,34 @@ meta_clip_effect_set_bounds(MetaClipEffect        *effect,
 
   clutter_actor_get_size(priv->actor, &w, &h);
 
-  int location_skip = 
-    cogl_pipeline_get_uniform_location(priv->pipeline, "skip");
-  int location_bounds = 
-    cogl_pipeline_get_uniform_location(priv->pipeline, "bounds");
-  int location_corner_centers_1 =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "corner_centers_1");
-  int location_corner_centers_2 =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "corner_centers_2");
-  int location_inner_bounds = 
-    cogl_pipeline_get_uniform_location(priv->pipeline, "inner_bounds");
-  int location_inner_corner_centers_1 =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "inner_corner_centers_1");
-  int location_inner_corner_centers_2 =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "inner_corner_centers_2");
-  int location_pixel_step =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "pixel_step");
-  int location_border_width =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "border_width");
-  int location_border_brightness =
-    cogl_pipeline_get_uniform_location(priv->pipeline, "border_brightness");
-
-
   float bounds[] = { x1, y1, x2, y2 };
-  float corner_centers_1[] = {
-    x1 + radius,
-    y1 + radius,
-    x2 - radius,
-    y1 + radius
-  };
-  float corner_centers_2[] = {
-    x2 - radius,
-    y2 - radius,
-    x1 + radius,
-    y2 - radius
-  };
-  float inner_bounds[] = { x1 + border, y1 + border, x2 - border, y2 - border };
   
-  float inner_corner_centers_1[] = {
-    x1 + radius,
-    y1 + radius,
-    x2 - radius,
-    y1 + radius
-  };
-  float inner_corner_centers_2[] = {
-    x2 - radius,
-    y2 - radius,
-    x1 + radius,
-    y2 - radius
-  };
+  float inner_bounds[] = { x1 + border, y1 + border, x2 - border, y2 - border };
+  float inner_radius = radius - border;
+  if (inner_radius < 0.0f) {
+    inner_radius = 0.0f;
+  }
 
   float pixel_step[] = { 1. / w, 1. / h };
 
   cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_bounds,
+                                  priv->bounds_uniform,
                                   4, 1, bounds);
+  cogl_pipeline_set_uniform_1f(priv->pipeline,
+                                  priv->clip_radius_uniform,
+                                  radius);
   cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_corner_centers_1,
-                                  4, 1, corner_centers_1);
-  cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_corner_centers_2,
-                                  4, 1, corner_centers_2);
-  cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_inner_bounds,
+                                  priv->inner_bounds_uniform,
                                   4, 1, inner_bounds);
+  cogl_pipeline_set_uniform_1f(priv->pipeline,
+                               priv->inner_clip_radius_uniform,
+                               inner_radius);
   cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_inner_corner_centers_1,
-                                  4, 1, inner_corner_centers_1);
-  cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_inner_corner_centers_2,
-                                  4, 1, inner_corner_centers_2);
-  cogl_pipeline_set_uniform_float(priv->pipeline,
-                                  location_pixel_step,
+                                  priv->pixel_step_uniform,
                                   2, 1, pixel_step);
-  cogl_pipeline_set_uniform_1i(priv->pipeline, location_skip, 0);
-  cogl_pipeline_set_uniform_1f(priv->pipeline, location_border_width, border);
-  cogl_pipeline_set_uniform_1f(priv->pipeline, location_border_brightness, brightness);
+  cogl_pipeline_set_uniform_1i(priv->pipeline, priv->skip_uniform, 0);
+  cogl_pipeline_set_uniform_1f(priv->pipeline, priv->border_width_uniform, border);
+  cogl_pipeline_set_uniform_1f(priv->pipeline, priv->border_brightness_uniform, brightness);
 }
 
 void
@@ -228,10 +207,7 @@ meta_clip_effect_skip(MetaClipEffect *effect)
 
   g_return_if_fail(priv->pipeline && priv->actor);
 
-  int location_skip = 
-    cogl_pipeline_get_uniform_location(priv->pipeline, "skip");
-
-  cogl_pipeline_set_uniform_1i(priv->pipeline, location_skip, 1);
+  cogl_pipeline_set_uniform_1i(priv->pipeline, priv->skip_uniform, 1);
 }
 
 void

@@ -12,6 +12,8 @@ __Issues__:
       </application>
   </device>
   ```
+  ## For Nvidia and AUR
+  - you need to do makepkg --nocheck -si or it will fail the checks at the end.
 
 - The original shadows of rounded windows has been cutted out, now use `MetaShadowFactroy` to draw shadows for rounded windows. So the animation effect of shadows in some themes has gone. 
 

@@ -83,6 +83,7 @@ sudo dnf reinstall mutter
 # Screenshots
 
 ![](screenshots/screenshots1.jpg)
+![](screenshots/screenshots0.jpg)
 
 # Settings
 

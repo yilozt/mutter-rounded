@@ -4,4 +4,4 @@ rounded_corners.41.1.patch: 40.4 <= mutter <= 41.1
 rounded_corners.41.3.patch: 41.1  < mutter  < 42.1
 rounder_corders.42.1.patch: 42.1 <= mutter
 
-shell_blur_effect.patch works any version >= 40.4
+shell_blur_effect.patch works with any version >= 40.4

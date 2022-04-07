@@ -3,7 +3,7 @@
 # The source of blur effect. You can replace with:
 #   - https://gitee.com/mirrors_GNOME/gnome-shell/raw
 #   - https://gitlab.gnome.org/GNOME/gnome-shell/-/raw
-blur_effect_url="https://gitee.com/mirrors_GNOME/gnome-shell/raw"
+blur_effect_url="https://gitlab.gnome.org/GNOME/gnome-shell/-/raw"
 
 dir="$(cd $(dirname $0); pwd)"
 patches="${dir}/../patches"

@@ -1,8 +1,8 @@
 diff --git a/data/org.gnome.mutter.gschema.xml.in b/data/org.gnome.mutter.gschema.xml.in
-index 23fa9f3ad..7ad3f3f35 100644
+index 23fa9f3ad..92e2da2fd 100644
 --- a/data/org.gnome.mutter.gschema.xml.in
 +++ b/data/org.gnome.mutter.gschema.xml.in
-@@ -2,6 +2,84 @@
+@@ -2,6 +2,92 @@
    <schema id="org.gnome.mutter" path="/org/gnome/mutter/"
            gettext-domain="@GETTEXT_DOMAIN@">
  
@@ -26,7 +26,7 @@ index 23fa9f3ad..7ad3f3f35 100644
 +    <key name="blur-window-opacity" type="i">
 +      <default>80</default>
 +      <range min="0" max="100"/>
-+      <summary>Blur brightness</summary>
++      <summary>Blur Window opacity</summary>
 +    </key>
 +
 +    <key name="border-width" type="i">
@@ -84,6 +84,14 @@ index 23fa9f3ad..7ad3f3f35 100644
 +      </description>
 +    </key>
 +
++    <key name="rounded-in-maximized" type="b">
++      <default>false</default>
++      <summary>Enable rounded corners when windows maximized</summary>
++      <description>
++        When true, the windows will always be clipped when be maximized.
++      </description>
++    </key>
++
      <key name="overlay-key" type="s">
        <default>'Super_L'</default>
        <summary>Modifier to use for extended window management operations</summary>
@@ -101,7 +109,7 @@ index 580618e48..f62de1924 100644
   * This function takes a 64 bit time stamp from the monotonic clock, and clamps
   * it to the scope of the X server clock, without losing the granularity.
 diff --git a/src/compositor/compositor.c b/src/compositor/compositor.c
-index 9cdd39c15..c55366fb2 100644
+index 9cdd39c15..9f37a94ea 100644
 --- a/src/compositor/compositor.c
 +++ b/src/compositor/compositor.c
 @@ -85,6 +85,8 @@
@@ -171,7 +179,7 @@ index 9cdd39c15..c55366fb2 100644
  }
  
  static void
-@@ -1191,6 +1222,45 @@ meta_compositor_get_property (GObject    *object,
+@@ -1191,6 +1222,49 @@ meta_compositor_get_property (GObject    *object,
      }
  }
  
@@ -208,6 +216,10 @@ index 9cdd39c15..c55366fb2 100644
 +    case META_PREF_BLUR_WINDOW_OPACITY:
 +      meta_window_actor_update_blur_window_opacity (l->data);
 +      break;
++    case META_PREF_ROUNDED_IN_MAXIMIZED:
++      meta_window_actor_update_glsl (l->data);
++      meta_window_actor_update_blur_position_size(l->data);
++      break;
 +    default:
 +      break;
 +    }
@@ -217,7 +229,7 @@ index 9cdd39c15..c55366fb2 100644
  static void
  meta_compositor_init (MetaCompositor *compositor)
  {
-@@ -1221,6 +1291,8 @@ meta_compositor_constructed (GObject *object)
+@@ -1221,6 +1295,8 @@ meta_compositor_constructed (GObject *object)
  
    priv->laters = meta_laters_new (compositor);
  
@@ -226,7 +238,7 @@ index 9cdd39c15..c55366fb2 100644
    G_OBJECT_CLASS (meta_compositor_parent_class)->constructed (object);
  }
  
-@@ -1246,6 +1318,8 @@ meta_compositor_dispose (GObject *object)
+@@ -1246,6 +1322,8 @@ meta_compositor_dispose (GObject *object)
    g_clear_pointer (&priv->feedback_group, clutter_actor_destroy);
    g_clear_pointer (&priv->windows, g_list_free);
  
@@ -235,7 +247,7 @@ index 9cdd39c15..c55366fb2 100644
    G_OBJECT_CLASS (meta_compositor_parent_class)->dispose (object);
  }
  
-@@ -1579,3 +1653,20 @@ meta_compositor_get_laters (MetaCompositor *compositor)
+@@ -1579,3 +1657,20 @@ meta_compositor_get_laters (MetaCompositor *compositor)
  
    return priv->laters;
  }
@@ -857,7 +869,7 @@ index 9e64462ea..7c003a342 100644
  
        /* The frame bounds are already subtracted from actor_x11->shadow_clip
 diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
-index b32df2010..012b67c2b 100644
+index b32df2010..655c0f267 100644
 --- a/src/compositor/meta-window-actor.c
 +++ b/src/compositor/meta-window-actor.c
 @@ -41,6 +41,9 @@
@@ -916,7 +928,7 @@ index b32df2010..012b67c2b 100644
 +  meta_window_get_frame_rect (priv->window, &frame_rect);
 +  meta_window_get_buffer_rect (priv->window, &buf_rect);
 +
-+  if (meta_window_get_maximized (priv->window) ||
++  if ((meta_window_get_maximized (priv->window) && !meta_prefs_get_rounded_in_maximized()) ||
 +      meta_window_is_fullscreen (priv->window))
 +    {
 +      clutter_actor_set_position (priv->blur_actor,
@@ -1081,9 +1093,9 @@ index b32df2010..012b67c2b 100644
 +{
 +  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
 +
-+  return priv->should_clip && 
-+        !(meta_window_get_maximized(priv->window)||
-+          meta_window_is_fullscreen(priv->window)); 
++  return priv->should_clip  && 
++        !((meta_window_get_maximized(priv->window) && !meta_prefs_get_rounded_in_maximized())
++          || meta_window_is_fullscreen(priv->window)); 
 +}
 +
 +void
@@ -1359,7 +1371,7 @@ index b32df2010..012b67c2b 100644
        else
          clutter_actor_hide (CLUTTER_ACTOR (self));
 diff --git a/src/core/prefs.c b/src/core/prefs.c
-index 536d9dd57..29bddc170 100644
+index 536d9dd57..1889b27a7 100644
 --- a/src/core/prefs.c
 +++ b/src/core/prefs.c
 @@ -33,6 +33,8 @@
@@ -1371,7 +1383,7 @@ index 536d9dd57..29bddc170 100644
  #include "compositor/meta-plugin-manager.h"
  #include "core/keybindings-private.h"
  #include "core/meta-accel-parse.h"
-@@ -120,6 +122,17 @@ static gboolean show_fallback_app_menu = TRUE;
+@@ -120,6 +122,18 @@ static gboolean show_fallback_app_menu = TRUE;
  static GDesktopVisualBellType visual_bell_type = G_DESKTOP_VISUAL_BELL_FULLSCREEN_FLASH;
  static MetaButtonLayout button_layout;
  
@@ -1381,6 +1393,7 @@ index 536d9dd57..29bddc170 100644
 +static int blur_sigmal = 20;
 +static int blur_window_opacity = 80;
 +static int blur_brightness = 100;
++static gboolean rounded_in_maximized = FALSE;
 +static JsonNode *clip_edge_padding = NULL;
 +/* NULL-terminated array */
 +static char **black_list = NULL;
@@ -1389,7 +1402,7 @@ index 536d9dd57..29bddc170 100644
  /* NULL-terminated array */
  static char **workspace_names = NULL;
  
-@@ -150,6 +163,7 @@ static gboolean mouse_button_mods_handler (GVariant*, gpointer*, gpointer);
+@@ -150,6 +164,7 @@ static gboolean mouse_button_mods_handler (GVariant*, gpointer*, gpointer);
  static gboolean button_layout_handler (GVariant*, gpointer*, gpointer);
  static gboolean overlay_key_handler (GVariant*, gpointer*, gpointer);
  static gboolean locate_pointer_key_handler (GVariant*, gpointer*, gpointer);
@@ -1397,7 +1410,21 @@ index 536d9dd57..29bddc170 100644
  
  static gboolean iso_next_group_handler (GVariant*, gpointer*, gpointer);
  
-@@ -454,6 +468,15 @@ static MetaStringPreference preferences_string[] =
+@@ -401,6 +416,13 @@ static MetaBoolPreference preferences_bool[] =
+       },
+       &locate_pointer_is_enabled,
+     },
++    {
++      { "rounded-in-maximized",
++        SCHEMA_MUTTER,
++        META_PREF_ROUNDED_IN_MAXIMIZED,
++      },
++      &rounded_in_maximized,
++    },
+     { { NULL, 0, 0 }, NULL },
+   };
+ 
+@@ -454,6 +476,15 @@ static MetaStringPreference preferences_string[] =
        locate_pointer_key_handler,
        NULL,
      },
@@ -1413,7 +1440,7 @@ index 536d9dd57..29bddc170 100644
      { { NULL, 0, 0 }, NULL },
    };
  
-@@ -475,6 +498,22 @@ static MetaStringArrayPreference preferences_string_array[] =
+@@ -475,6 +506,22 @@ static MetaStringArrayPreference preferences_string_array[] =
        iso_next_group_handler,
        NULL,
      },
@@ -1436,7 +1463,7 @@ index 536d9dd57..29bddc170 100644
      { { NULL, 0, 0 }, NULL },
    };
  
-@@ -515,6 +554,54 @@ static MetaIntPreference preferences_int[] =
+@@ -515,6 +562,54 @@ static MetaIntPreference preferences_int[] =
        },
        &cursor_size
      },
@@ -1491,7 +1518,7 @@ index 536d9dd57..29bddc170 100644
      { { NULL, 0, 0 }, NULL },
    };
  
-@@ -1588,6 +1675,81 @@ locate_pointer_key_handler (GVariant *value,
+@@ -1588,6 +1683,81 @@ locate_pointer_key_handler (GVariant *value,
    return TRUE;
  }
  
@@ -1573,7 +1600,7 @@ index 536d9dd57..29bddc170 100644
  static gboolean
  iso_next_group_handler (GVariant *value,
                          gpointer *result,
-@@ -1759,6 +1921,33 @@ meta_preference_to_string (MetaPreference pref)
+@@ -1759,6 +1929,36 @@ meta_preference_to_string (MetaPreference pref)
  
      case META_PREF_CHECK_ALIVE_TIMEOUT:
        return "CHECK_ALIVE_TIMEOUT";
@@ -1604,10 +1631,13 @@ index 536d9dd57..29bddc170 100644
 +
 +    case META_PREF_BLUR_WINDOW_OPACITY:
 +      return "BLUR_WINDOW_OPACITY";
++
++    case META_PREF_ROUNDED_IN_MAXIMIZED:
++      return "ROUNDED_IN_MAXIMIZED";    
      }
  
    return "(unknown)";
-@@ -2227,3 +2416,94 @@ meta_prefs_set_force_fullscreen (gboolean whether)
+@@ -2227,3 +2427,100 @@ meta_prefs_set_force_fullscreen (gboolean whether)
  {
    force_fullscreen = whether;
  }
@@ -1691,6 +1721,12 @@ index 536d9dd57..29bddc170 100644
 +}
 +
 +gboolean
++meta_prefs_get_rounded_in_maximized(void)
++{
++  return rounded_in_maximized;
++}
++
++gboolean
 +meta_prefs_in_blur_list(const char *name)
 +{
 +  g_return_val_if_fail(blur_list, FALSE);
@@ -1745,10 +1781,10 @@ index f3aebfb28..cf9cf4b61 100644
    version: '0.0.0',
    soversion: 0,
 diff --git a/src/meta/prefs.h b/src/meta/prefs.h
-index 227de68bf..7d5d8f347 100644
+index 227de68bf..f005f47e8 100644
 --- a/src/meta/prefs.h
 +++ b/src/meta/prefs.h
-@@ -106,6 +106,16 @@ typedef enum
+@@ -106,6 +106,17 @@ typedef enum
    META_PREF_DRAG_THRESHOLD,
    META_PREF_LOCATE_POINTER,
    META_PREF_CHECK_ALIVE_TIMEOUT,
@@ -1762,10 +1798,11 @@ index 227de68bf..7d5d8f347 100644
 +  META_PREF_BLUR_BRIGHTNESS,
 +  META_PREF_BLUR_LIST,
 +  META_PREF_BLUR_WINDOW_OPACITY,
++  META_PREF_ROUNDED_IN_MAXIMIZED,
  } MetaPreference;
  
  typedef void (* MetaPrefsChangedFunc) (MetaPreference pref,
-@@ -233,6 +243,33 @@ int      meta_prefs_get_draggable_border_width (void);
+@@ -233,6 +244,36 @@ int      meta_prefs_get_draggable_border_width (void);
  META_EXPORT
  int      meta_prefs_get_drag_threshold (void);
  
@@ -1792,6 +1829,9 @@ index 227de68bf..7d5d8f347 100644
 +
 +META_EXPORT
 +int      meta_prefs_get_blur_window_opacity(void);
++
++META_EXPORT
++gboolean meta_prefs_get_rounded_in_maximized(void);
 +
 +META_EXPORT
 +gboolean meta_prefs_in_blur_list(const char *name);

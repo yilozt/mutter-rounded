@@ -4,31 +4,32 @@
   meta_prefs_get_auto_maximize@Base 3.28.2
   meta_prefs_get_auto_raise@Base 3.28.2
   meta_prefs_get_auto_raise_delay@Base 3.28.2
-+ meta_prefs_get_blur_brightness@Base 40.5-1ubuntu2
-+ meta_prefs_get_blur_sigmal@Base 40.5-1ubuntu2
-+ meta_prefs_get_blur_window_opacity@Base 40.5-1ubuntu2
-+ meta_prefs_get_border_brightness@Base 40.5-1ubuntu2
-+ meta_prefs_get_border_width@Base 40.5-1ubuntu2
++ meta_prefs_get_blur_brightness@Base 40.5-1ubuntu3~21.10.1
++ meta_prefs_get_blur_sigmal@Base 40.5-1ubuntu3~21.10.1
++ meta_prefs_get_blur_window_opacity@Base 40.5-1ubuntu3~21.10.1
++ meta_prefs_get_border_brightness@Base 40.5-1ubuntu3~21.10.1
++ meta_prefs_get_border_width@Base 40.5-1ubuntu3~21.10.1
   meta_prefs_get_button_layout@Base 3.28.2
   meta_prefs_get_center_new_windows@Base 3.28.2
   meta_prefs_get_check_alive_timeout@Base 3.35.92
-+ meta_prefs_get_clip_edge_padding@Base 40.5-1ubuntu2
++ meta_prefs_get_clip_edge_padding@Base 40.5-1ubuntu3~21.10.1
   meta_prefs_get_cursor_size@Base 3.28.2
   meta_prefs_get_cursor_theme@Base 3.28.2
   meta_prefs_get_disable_workarounds@Base 3.28.2
-@@ -416,12 +422,15 @@
+@@ -416,12 +422,16 @@
   meta_prefs_get_mouse_button_resize@Base 3.28.2
   meta_prefs_get_num_workspaces@Base 3.28.2
   meta_prefs_get_raise_on_click@Base 3.28.2
-+ meta_prefs_get_round_corner_radius@Base 40.5-1ubuntu2
++ meta_prefs_get_round_corner_radius@Base 40.5-1ubuntu3~21.10.1
++ meta_prefs_get_rounded_in_maximized@Base 40.5-1ubuntu3~21.10.1
   meta_prefs_get_show_fallback_app_menu@Base 3.28.2
   meta_prefs_get_titlebar_font@Base 3.28.2
   meta_prefs_get_visual_bell@Base 3.28.2
   meta_prefs_get_visual_bell_type@Base 3.28.2
   meta_prefs_get_workspace_name@Base 3.28.2
   meta_prefs_get_workspaces_only_on_primary@Base 3.28.2
-+ meta_prefs_in_black_list@Base 40.5-1ubuntu2
-+ meta_prefs_in_blur_list@Base 40.5-1ubuntu2
++ meta_prefs_in_black_list@Base 40.5-1ubuntu3~21.10.1
++ meta_prefs_in_blur_list@Base 40.5-1ubuntu3~21.10.1
   meta_prefs_init@Base 3.28.2
   meta_prefs_remove_listener@Base 3.28.2
   meta_prefs_set_force_fullscreen@Base 3.28.2

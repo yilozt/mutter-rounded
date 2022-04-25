@@ -63,7 +63,7 @@ sudo apt install libmutter-8-0 mutter-common
 sudo apt install libmutter-10-0 mutter-common
 ```
 
-## Fedora 35
+## Fedora 35 / Fedora 36
 
 There are pre-build packages which built by [@gregor160300](https://github.com/gregor160300), you can download packages from [https://gregor160300.stackstorage.com/s/I4YFXu82ay6mNE0C/en_US](https://gregor160300.stackstorage.com/s/I4YFXu82ay6mNE0C/en_US).
 

@@ -5,10 +5,25 @@
 #   - https://gitlab.gnome.org/GNOME/gnome-shell/-/raw
 blur_effect_url="https://gitlab.gnome.org/GNOME/gnome-shell/-/raw"
 
+# Choose rounded corners patch
+declare -A patches
+patches=(
+  [35]="rounded_corners.41.3.patch"
+  [36]="rounded_corners.42.0.patch"
+)
+distro_ver=$(. /etc/os-release && echo $VERSION_ID)
+rounded_corners_patch=${patches[${distro_ver}]}
+if [[ "$rounded_corners_patch" == "" ]]; then
+  echo "Supported version: ${!patches[@]}"
+  echo "Current version: ${distro_ver}"
+  echo exit.
+  exit 1
+fi
+
 # 0. Prepare
 # Get the absolute path where this script locate
 dir="$(cd $(dirname $0); pwd)"
-patches="${dir}/../patches"
+patches_dir="${dir}/../patches"
 tool="$dir/../tool"
 SUDO=sudo
 if [ "$(whoami)" = "root" ]; then
@@ -50,9 +65,9 @@ run git commit -m 'init'
 # 3. Copy the source file from patches and apply the patches
 #    Then use `git diff` to generate a big patch for building the package
 run cp ../*.[ch] ./src
-run cp "${patches}"/*.[ch] ./src
-run patch -p1 < "${patches}"/rounded_corners.41.3.patch
-run patch -p1 < "${patches}"/shell_blur_effect.patch
+run cp "${patches_dir}"/*.[ch] ./src
+run patch -p1 < "${patches_dir}"/rounded_corners.41.3.patch
+run patch -p1 < "${patches_dir}"/shell_blur_effect.patch
 run git add **.[ch]
 run git add **.in
 run git add src/meson.build

@@ -71,7 +71,7 @@ Alternatively, you can build packages by yourself with scripts in `fedora_35` fo
 
 ```bash
 git clone https://github.com/yilozt/mutter-rounded
-cd ./mutter-rounded/fedora_35
+cd ./mutter-rounded/fedora
 ./package.sh
 ```
 

@@ -66,19 +66,19 @@ run git commit -m 'init'
 #    Then use `git diff` to generate a big patch for building the package
 run cp ../*.[ch] ./src
 run cp "${patches_dir}"/*.[ch] ./src
-run patch -p1 < "${patches_dir}"/rounded_corners.41.3.patch
+run patch -p1 < "${patches_dir}"/${rounded_corners_patch}
 run patch -p1 < "${patches_dir}"/shell_blur_effect.patch
 run git add **.[ch]
 run git add **.in
 run git add src/meson.build
-run git diff --cached > ../0001-mutter-rounded-41.1.patch
+run git diff --cached > ../0001-mutter-rounded.patch
 run cd ..
 
 # 4. apply the patches
-run cp ./0001-mutter-rounded-41.1.patch "${topdir}/SOURCES/"
+run cp ./0001-mutter-rounded.patch "${topdir}/SOURCES/"
 patch_counts=$(grep Patch ${topdir}/SPECS/mutter.spec | wc -l)
 to_match="Patch$((patch_counts - 1))"
-to_insert="# Mutter rounded patch for 41.1\nPatch${patch_counts}: 0001-mutter-rounded-41.1.patch"
+to_insert="# Mutter rounded patch\nPatch${patch_counts}: 0001-mutter-rounded.patch"
 run sed -i \
   "/^${to_match}.*/a ${to_insert}" \
   ${topdir}/SPECS/mutter.spec
@@ -87,4 +87,3 @@ run sed -i \
 run rpmbuild -ba "${topdir}/SPECS/mutter.spec"
 
 echo $(green "build finish, you can find packages at:$topdir/RPMS/x86_64" )
-

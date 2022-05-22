@@ -41,9 +41,9 @@ export LANG=en_US.UTF-8
 
 # 1. Download the source rpm
 run rm -rf mutter* shell-blur-effect*
-run ${SUDO} dnf download mutter --source
-run ${SUDO} dnf builddep mutter
-run ${SUDO} dnf install fedora-packager
+run ${SUDO} dnf -y download mutter --source
+run ${SUDO} dnf -y builddep mutter
+run ${SUDO} dnf -y install fedora-packager
 run rpmdev-setuptree
 run rpm -ivh mutter*.rpm
 

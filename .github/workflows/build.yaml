@@ -28,19 +28,28 @@ jobs:
 
       - name: Setup enviroment
         run: |
+          echo '::group::Install wget locales lsb-core'
           apt update
           apt install -y wget locales lsb-core
+          echo '::endgroup::'
+
+          echo '::group::Setup locale'
           rm -rf /var/lib/apt/lists/*
           localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
-      
+          echo '::endgroup::'
+
       - name: Build packages
         run: ./ubuntu/package.sh
 
       - name: Install packages
         id: install
         run: |
+          echo '::group::Upgrade system before install'
           apt upgrade -y
+          echo '::endgroup::'
+          echo '::group::Install mutter'
           dpkg -i ubuntu/*.deb
+          echo '::endgroup::'
           echo "::set-output name=pkgver::$(ls ./ubuntu/mutter-common*|cut -d '_' -f 2)"
 
       - name: Upload Artifact
@@ -65,8 +74,10 @@ jobs:
 
         - name: Setup enviroment
           run: |
+            echo '::group::Install wget dnf-command(download)'
             dnf -y update
             dnf -y install 'dnf-command(download)' wget
+            echo '::endgroup::'
         
         - name: Build packages
           run: ./fedora/package.sh
@@ -74,9 +85,13 @@ jobs:
         - name: Install packages
           id: install
           run: |
+            echo '::group::Install original packages'
             cd ~/rpmbuild/RPMS/x86_64/
             dnf -y install mutter
+            echo '::endgroup::'
+            echo '::group::Install patched packages'
             rpm --reinstall mutter-*
+            echo '::endgroup::'
             echo "::set-output name=pkgver::$(ls mutter-[0-9]*)"
 
         - name: Upload Artifact

@@ -10,15 +10,17 @@ function green() {
 
 function run() {
   ignore=$1
-  if [ "$ignore" == "_ignore_" ]; then
+  if [[ "$ignore" == "_ignore_" ]]; then
     shift
   fi
-   
-  echo "$(green [run]) $*"
+  
+  [[ -n "$IN_GITHUB_ACTION" ]] && echo "::group::$(green '[run]') $*" || echo "$(green '[run]') $*"
   "$@"
   local errcode="$?"
   if [[ "$errcode" != "0" && "$ignore" != "_ignore_" ]]; then
-    red [err: $errcode] "$*\n"
+    red \[err: $errcode\] "$*\n"
+    [[ -n "$IN_GITHUB_ACTION" ]] && echo "::endgroup::"
     exit 1
   fi
+  [[ -n "$IN_GITHUB_ACTION" ]] && echo "::endgroup::"
 }

@@ -7,7 +7,7 @@ on:
       - README.md
       - LICENSE
   schedule:
-    - cron: '* * * * 6'
+    - cron: '0 0 * * 6'
 
 jobs:
   build-in-ubuntu:

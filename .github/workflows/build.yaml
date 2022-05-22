@@ -1,0 +1,87 @@
+name: Build Packages
+
+on:
+  push:
+    paths-ignore:
+      - screenshots
+      - README.md
+      - LICENSE
+  schedule:
+    - cron: '* * * * 6'
+
+jobs:
+  build-in-ubuntu:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['22.04', '21.10']
+    container: ubuntu:${{ matrix.version }}
+    name: Ubuntu ${{ matrix.version }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LANG: en_US.UTF-8
+      DEB_BUILD_OPTIONS: nocheck
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup enviroment
+        run: |
+          apt update
+          apt install -y wget locales lsb-core
+          rm -rf /var/lib/apt/lists/*
+          localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
+      
+      - name: Build packages
+        run: ./ubuntu/package.sh
+
+      - name: Install packages
+        id: install
+        run: |
+          apt upgrade -y
+          dpkg -i ubuntu/*.deb
+          echo "::set-output name=pkgver::$(ls ./ubuntu/mutter-common*|cut -d '_' -f 2)"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: "[Ubuntu ${{ matrix.version }}][${{ steps.install.outputs.pkgver }}]" 
+          path: |
+            ubuntu/mutter-common*.deb
+            ubuntu/libmutter-*-0*.deb
+
+  build-in-fedora:
+      runs-on: ubuntu-latest
+      strategy:
+        fail-fast: false
+        matrix:
+          version: ['35', '36']
+      container: fedora:${{ matrix.version }}
+      name: Fedora ${{ matrix.version }}
+
+      steps:
+        - uses: actions/checkout@v3
+
+        - name: Setup enviroment
+          run: |
+            dnf -y update
+            dnf -y install 'dnf-command(download)' wget
+        
+        - name: Build packages
+          run: ./fedora/package.sh
+
+        - name: Install packages
+          id: install
+          run: |
+            cd ~/rpmbuild/RPMS/x86_64/
+            dnf -y install mutter
+            rpm --reinstall mutter-*
+            echo "::set-output name=pkgver::$(ls mutter-[0-9]*)"
+
+        - name: Upload Artifact
+          uses: actions/upload-artifact@v3
+          with:
+            name: "[Fedora ${{ matrix.version }}][${{ steps.install.outputs.pkgver }}]" 
+            path: |
+              ~/rpmbuild/RPMS/x86_64/mutter-[0-9]*

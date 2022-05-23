@@ -102,7 +102,7 @@ jobs:
         run: |
           ./fedora/package.sh
           cd ~/rpmbuild/RPMS/x86_64/
-          echo "::set-output name=pkgver::\"$(ls mutter-[0-9]*)\""
+          echo "::set-output name=pkgver::$(ls mutter-[0-9]*)"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v3

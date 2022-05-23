@@ -18,7 +18,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: ['ubuntu', '']
         version: ['22.04', '21.10']
     container: ubuntu:${{ matrix.version }}
     name: Ubuntu ${{ matrix.version }}

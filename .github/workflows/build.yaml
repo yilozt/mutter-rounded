@@ -18,6 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        distro: ['ubuntu', '']
         version: ['22.04', '21.10']
     container: ubuntu:${{ matrix.version }}
     name: Ubuntu ${{ matrix.version }}
@@ -44,6 +45,14 @@ jobs:
       - name: Build packages
         run: ./ubuntu/package.sh
 
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: "[Ubuntu ${{ matrix.version }}][${{ steps.install.outputs.pkgver }}]" 
+          path: |
+            ubuntu/mutter-common*.deb
+            ubuntu/libmutter-*-0*.deb
+
       - name: Install packages
         id: install
         run: |
@@ -54,14 +63,6 @@ jobs:
           dpkg -i ubuntu/*.deb
           echo '::endgroup::'
           echo "::set-output name=pkgver::$(ls ./ubuntu/mutter-common*|cut -d '_' -f 2)"
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: "[Ubuntu ${{ matrix.version }}][${{ steps.install.outputs.pkgver }}]" 
-          path: |
-            ubuntu/mutter-common*.deb
-            ubuntu/libmutter-*-0*.deb
 
   build-in-fedora:
       runs-on: ubuntu-latest

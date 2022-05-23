@@ -72,4 +72,4 @@ run _ignore_ debuild
 run cd ../
 run mv *.deb ../
 
-green "build finish, you can find packages at: $dir \n"
+echo $(green "build finish, you can find packages at:$dir" )

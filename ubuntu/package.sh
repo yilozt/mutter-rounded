@@ -46,7 +46,8 @@ run ${SUDO} apt build-dep -y mutter
 
 # download the source code
 run rm -rf mutter-* shell-blur-effect*
-run pull-lp-source mutter ${code_name}-release
+apt -y --download-only source mutter
+dpkg-source -x *.dsc
 ver=$(ls mutter-* -d |cut -d '-' -f 2)
 
 run wget ${blur_effect_url}/${ver}/src/shell-blur-effect.c

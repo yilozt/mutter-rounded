@@ -27,12 +27,6 @@ install `mutter-rounded` by AUR helper:
 yay -S mutter-rounded
 ```
 
-### Uninstall
-
-```bash
-sudo pacman -S mutter
-```
-
 ## Ubuntu 21.10 / Ubuntu 22.04
 
 There is a simple script to help you build the packages in ubuntu 21.10. It's neccesary to check the content of script. Before you build the packages, the `Source code` checkbox in `Software & Updates` should be enabled:
@@ -49,18 +43,6 @@ sudo dpkg -i libmutter-8-0*.deb mutter-common*.deb
 
 # Ubuntu 22.04
 sudo dpkg -i libmutter-10-0*.deb mutter-common*.deb
-```
-
-### Uninstall
-
-Install `libmutter-8-0` and `mutter-common` from official repo:
-
-```bash
-# Ubuntu 21.10
-sudo apt install libmutter-8-0 mutter-common
-
-# Ubuntu 22.04
-sudo apt install libmutter-10-0 mutter-common
 ```
 
 ## Fedora 35 / Fedora 36
@@ -83,7 +65,28 @@ sudo dnf upgrade mutter
 sudo rpm --reinstall mutter-41.*
 ```
 
-### Uninstall
+# Uninstall
+
+When you want to remove this patch from your system, just need to install `mutter` package from official repo.
+The rounded corners will gone when you login into gnome-shell in next time.
+
+- Arch Linux
+
+```
+sudo pacman -S mutter
+```
+
+- Ubuntu
+
+```bash
+# Ubuntu 21.10
+sudo apt install libmutter-8-0 mutter-common
+
+# Ubuntu 22.04
+sudo apt install libmutter-10-0 mutter-common
+```
+
+- Fedora
 
 ```
 sudo dnf reinstall mutter

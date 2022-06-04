@@ -2,6 +2,7 @@ Status:
 
 rounded_corners.41.1.patch: 40.4 <= mutter <= 41.1
 rounded_corners.41.3.patch: 41.1  < mutter  < 42.1
-rounder_corders.42.1.patch: 42.1 <= mutter
+rounder_corders.42.1.patch: 42.1 <= mutter  < 42.2
+rounder_corders.42.2.patch: 42.2 <= mutter
 
 shell_blur_effect.patch works with any version >= 40.4

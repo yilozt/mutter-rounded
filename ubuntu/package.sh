@@ -21,7 +21,7 @@ export LANG=en_US.UTF-8
 declare -A support_patches
 support_patches=(
   [21.10]="rounded_corners.41.1.patch"
-  [22.04]="rounded_corners.42.0.patch"
+  [22.04]="rounded_corners.42.2.patch"
 )
 current_version=$(lsb_release -rs)
 code_name=$(lsb_release -cs)

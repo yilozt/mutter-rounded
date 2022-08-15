@@ -4,7 +4,7 @@ integrate the blur effects with rounded corners.The source code can be found [he
 
 __Issues__:
 
-- It can be buggy with blur effect. see [https://github.com/aunetx/blur-my-shell](https://github.com/aunetx/blur-my-shell). If you are using intel driver in Xorg session, try create `.drirc` in your home directory to disable Vertical Synchronization: 
+- It can be buggy with blur effect. see [https://github.com/aunetx/blur-my-shell](https://github.com/aunetx/blur-my-shell). If you are using Intel driver in Xorg session, try create `.drirc` in your home directory to disable Vertical Synchronization: 
   ```xml
   <device screen="0" driver="dri2">
       <application name="Default">
@@ -49,7 +49,7 @@ sudo dpkg -i libmutter-10-0*.deb mutter-common*.deb
 
 There are pre-build packages which built by [@gregor160300](https://github.com/gregor160300), you can download packages from [https://gregor160300.stackstorage.com/s/I4YFXu82ay6mNE0C/en_US](https://gregor160300.stackstorage.com/s/I4YFXu82ay6mNE0C/en_US).
 
-Alternatively, you can build packages by yourself with scripts in `fedora_35` folder. It's neccesary to check the contents in scripts before you run it.
+Alternatively, you can build packages by yourself with scripts in `fedora` folder. It's neccesary to check the contents in scripts before you run it.
 
 ```bash
 git clone https://github.com/yilozt/mutter-rounded
@@ -62,7 +62,7 @@ After scripts finish, the rpm packages will be found in `~/rpmbuild/RPMS/x86_64/
 ```
 cd ~/rpmbuild/RPMS/x86_64/
 sudo dnf upgrade mutter
-sudo rpm --reinstall mutter-41.*
+sudo rpm --reinstall mutter-42.*
 ```
 
 # Uninstall
